@@ -1,0 +1,3 @@
+To compile, requires caxe preprocessor, and scx caxe library (another github repo)
+
+them simply invoke the makefile, making sure that $SCX env-var is set up to point to scx root.
