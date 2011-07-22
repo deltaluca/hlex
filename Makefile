@@ -13,6 +13,7 @@ hlex: pre_process
 	@echo "---------------"
 	@echo "Compiling hlex!"
 	@echo "---------------"
+	mkdir -p bin
 	haxe -cp src -neko bin/hlex.n -main Main
 	nekotools boot bin/hlex.n
 	
