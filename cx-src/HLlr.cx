@@ -1,18 +1,18 @@
 package ;
 
-
-	enum HLX {
-		hlx_decl(token:String, prec:Int, regexp:String);
-		hlx_ignore(token:String, prec:Int, regexp:String);
-		hlx_attr(token:String, attr:String);
-		hlx_extra(haxe:String);
-		hlx_err(name:String);
-	}
-	
-	class Error {
-		public static var err:Bool=false;
-		public static var errors = new Array<String>();
-	}
+
+	enum HLX {
+		hlx_decl(token:String, prec:Int, regexp:String);
+		hlx_ignore(token:String, prec:Int, regexp:String);
+		hlx_attr(token:String, attr:String);
+		hlx_extra(haxe:String);
+		hlx_err(name:String);
+	}
+	
+	class Error {
+		public static var err:Bool=false;
+		public static var errors = new Array<String>();
+	}
 
 class HLlr {
 	public static var errors:Array<String>;
@@ -27,48 +27,48 @@ class HLlr {
 
 		var entry_state = 1;
 
-var stack = new Array<Int>();
-var ret = new Array<Dynamic>();
-
-var cur = input.pop();
-var cstate = entry_state;
-
-while(cur!=null) {
-	var action = actions[cstate][cur.id];
-	//trace(cstate+" "+Std.string(stack)+" # "+Std.string(cur)+" "+Std.string(action)+"  #  "+Std.string(input)+"   ~   "+Std.string(ret));
-	
-	switch(action) {
-		case aS(id):
-			ret.push(cur);
-			stack.push(cstate);
-			cstate = id;
-			cur = input.pop();
-		case aR(id):
-			var c = rules[id];
-			c.cb(ret);
-			
-			if(c.cnt>0) {
-				for(i in 0...c.cnt-1) stack.pop();
-				cstate = stack[stack.length-1];
-			}else stack.push(cstate);
-			
-			var goto = actions[cstate][c.sym];
-			switch(goto) { case aG(id): cstate = id; default: }
-		case aA:
-			break;
-		case aE:
-			if(cur != Terminal.ERROR) {
-				//if(input.length==0) input.push(Terminal.DOLLAR);
-				input.push(cur = Terminal.ERROR);
-			} else {
-				ret.pop();
-				if(stack.length==0) break;
-				cstate = stack.pop();
-			}
-		default:
-	}
-}
-
+var stack = new Array<Int>();
+var ret = new Array<Dynamic>();
+
+var cur = input.pop();
+var cstate = entry_state;
+
+while(cur!=null) {
+	var action = actions[cstate][cur.id];
+	//trace(cstate+" "+Std.string(stack)+" # "+Std.string(cur)+" "+Std.string(action)+"  #  "+Std.string(input)+"   ~   "+Std.string(ret));
+	
+	switch(action) {
+		case aS(id):
+			ret.push(cur);
+			stack.push(cstate);
+			cstate = id;
+			cur = input.pop();
+		case aR(id):
+			var c = rules[id];
+			c.cb(ret);
+			
+			if(c.cnt>0) {
+				for(i in 0...c.cnt-1) stack.pop();
+				cstate = stack[stack.length-1];
+			}else stack.push(cstate);
+			
+			var goto = actions[cstate][c.sym];
+			switch(goto) { case aG(id): cstate = id; default: }
+		case aA:
+			break;
+		case aE:
+			if(cur != Terminal.ERROR) {
+				//if(input.length==0) input.push(Terminal.DOLLAR);
+				input.push(cur = Terminal.ERROR);
+			} else {
+				ret.pop();
+				if(stack.length==0) break;
+				cstate = stack.pop();
+			}
+		default:
+	}
+}
+
 return if(ret.length==0) null else ret[0];	}
 
 	private static inline function R0(ret:Array<Dynamic>) {
@@ -126,9 +126,9 @@ return if(ret.length==0) null else ret[0];	}
 	private static inline function R7(ret:Array<Dynamic>) {
 		//assign arguments.
 		var hllr__0 = ret.pop();
-		ret.push(({
-			if(!Error.err) { Error.errors.push("Unrecognised statement"); Error.err = true; }
-			null;
+		ret.push(({
+			if(!Error.err) { Error.errors.push("Unrecognised statement"); Error.err = true; }
+			null;
 		}));
 	}
 }
@@ -165,10 +165,10 @@ class Terminal {
 	}
 }
 
-enum Action {
-	aE;
-	aS(n:Int);
-	aR(r:Int);
-	aA;
-	aG(n:Int);
+enum Action {
+	aE;
+	aS(n:Int);
+	aR(r:Int);
+	aA;
+	aG(n:Int);
 }
