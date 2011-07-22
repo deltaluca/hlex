@@ -1,0 +1,648 @@
+package;
+
+import util.Set;
+import util.UStr;
+import util.CharSet;
+import util.FA;
+import util.RegExp;
+import util.LList;
+
+//using UStr.Unicode;
+//using FA.FaUtil(CharSet);
+
+import neko.Sys;
+import neko.Lib;
+import neko.io.File;
+
+import HLex;
+import HLlr;
+import util.Textual;
+
+typedef Rule = { name:String, id:Int, attr:String, nfa:NFA(CharSet), ign:Bool };
+
+class Main {
+	static function main() {
+		var args = Sys.args();
+		if(args.length < 3) {
+			Lib.println("Usage: hlex descriptor.hxl -haxe output.hx [-package name]");
+			Lib.println("       hlex descriptor.hxl -cpp output_exec output_utils.hx");
+			Lib.println("");
+			Lib.println("   For syntax of hxl view readme.txt");
+			
+			Sys.exit(1);
+			return;
+		}
+		
+		//------------------------------------------------------------------------------------------
+		
+		Lib.println(" >> Initialising");
+		
+		var packname = "";
+		var haxemode = true;
+		
+		var flag = args[1];
+		if(flag=="-haxe") haxemode = true;
+		else if(flag=="-cpp") haxemode = false;
+		else { Lib.println("Unrecognised flag "+flag); Sys.exit(1); }
+		
+		var iarg = haxemode ? 2 : 3;
+		while(iarg+1 < args.length) {
+			var flag = args[iarg++];
+			if(flag=="-package" && haxemode) packname = args[iarg++];
+			else Lib.println("Unrecognised flag "+flag);
+		}
+		
+		//------------------------------------------------------------------------------------------
+		
+		Lib.println(" >> Lexing descriptor");
+		
+		var hxl = File.getContent(args[0]);
+		var tokens = HLex.lexify(hxl);
+		
+		var terminals = new Array<Terminal>();
+		for(i in tokens) {
+			var p = switch(i.id) {
+				case Token.t_ident: Terminal.IDENT.inst(i.data);
+				case Token.t_int  : Terminal.INT.inst(i.data);
+				case Token.t_attrx: Terminal.ATTR;
+				case Token.t_lpar: Terminal.LPAR;
+				case Token.t_rpar: Terminal.RPAR;
+				case Token.t_colon: Terminal.COLON;
+				case Token.t_coleq: Terminal.COLEQ;
+				case Token.t_regexp: Terminal.REGEXP.inst(i.data);
+				case Token.t_haxe:   Terminal.HAXE.inst(i.data);
+				case Token.t_NULLx: Terminal.NULL;
+				case Token.t_error: Terminal.ERROR;
+				default: null;
+			}
+			if(p!=null) terminals.unshift(p);
+		}
+		terminals.unshift(Terminal.DOLLAR);
+		
+		Lib.println(" >> Parsing descriptor");
+
+		var hlx:Array<HLX> = cast HLlr.parse(terminals);
+		
+		for(i in Error.errors)
+			Lib.println("ERROR: "+i);
+		
+		if(Error.errors.length>0) Sys.exit(1);
+		
+		//------------------------------------------------------------------------------------------
+		
+		Lib.println(" >> Building NFA");
+		
+		var extra = "";
+		var errs = false;
+		var rules = new StringMap(Rule)();
+		var nfrules = new Array<NFA(CharSet)>();
+		var tokenid = 1;
+		
+		for(S in hlx) {
+			switch(S) {
+				case hlx_ignore(n,p,reg):
+					if(rules.has(n)) {
+						Lib.println("ERROR: Rule "+n+" already exists in rule declaration!");
+						errs = true;
+					}
+					var nfa = RegExp.nfa(Unicode.fromString(reg));
+					var rule = { name : n, id : -1, nfa : nfa, attr : null, ign : true };
+					FaUtil(CharSet).attribute(nfa, p, function(_) return rule);
+					
+					nfrules.push(nfa);
+					rules.insert(n,rule);
+				
+				case hlx_decl(n,p,reg):
+					if(rules.has(n)) {
+						Lib.println("ERROR: Rule "+n+" already exists in rule declaration!");
+						errs = true;
+					}
+					var nfa = RegExp.nfa(Unicode.fromString(reg));
+					var rule = { name : n, id : tokenid++, nfa : nfa, attr : null, ign : false };
+					FaUtil(CharSet).attribute(nfa, p, function(_) return rule);
+					
+					nfrules.push(nfa);
+					rules.insert(n,rule);
+					
+				case hlx_attr(n, attr):
+					var rule = rules.get(n);
+					if(rule==null) {
+						Lib.println("ERROR: Rule "+n+" does not exist in attribute definition!");
+						errs = true;
+					}
+					
+					rule.attr = attr;
+					
+				case hlx_extra(haxe):
+					extra += haxe;
+			}
+		}
+		
+		if(errs) Sys.exit(1);
+		
+		//------------------------------------------------------------------------------------------
+		
+		neko.Lib.println(" >> Building DFA");
+		
+		var nfa = FaUtil(CharSet).dfa_cons(nfrules);
+		var dfa = FaUtil(CharSet).dfa(nfa);
+		
+		neko.Lib.println(" >> Minimalising DFA");
+
+		dfa = FaUtil(CharSet).minimal(dfa);
+
+		//------------------------------------------------------------------------------------------
+		//output to file.
+		
+		neko.Lib.println(" >> Outputting to file");
+		var out = "";
+		
+		if(!haxemode) {
+			
+			out += "#include <cstdio>\n";
+			out += "#include <string>\n";
+			out += "#include <cstring>\n";
+			out += "#include <cstdlib>\n";
+			out += "using std::string;\n";
+			
+			out += "const char b0[] = {0xff,0};\n";
+			out += "const char b1[] = {0xff,1};\n";
+			out += "const char b2[] = {0xff,2};\n";
+			out += "inline void hlex_byte(unsigned char c) {\n";
+			out += "	switch(c) {\n";
+			out += "		case 0xff: fwrite(b0,1,2,stdout); break;\n";
+			out += "		case 0x0a: fwrite(b1,1,2,stdout); break;\n";
+			out += "		case 0x0d: fwrite(b2,1,2,stdout); break;\n";
+			out += "		default:   fputc(c,stdout);\n";
+			out += "	}\n";
+			out += "}\n";
+			
+			out += "inline void hlex_string(const string& x) {\n";
+			out += "	fputc(1,stdout);\n";
+			out += "	fputs(x.c_str(),stdout);\n";
+			out += "	fputc(0,stdout);\n";
+			out += "}\n";
+			
+			out += "inline void hlex_int(int x) {\n";
+			out += "	fputc(2,stdout);\n";
+			out += "	char* xs = (char*)(&x);\n";
+			out += "	for(int i = 0; i<4; i++) hlex_byte(xs[i]);\n";
+			out += "}\n";
+			
+			out += "inline void hlex_float(double x) {\n";
+			out += "	fputc(3,stdout);\n";
+			out += "	char* xs = (char*)(&x);\n";
+			out += "	for(int i = 0; i<8; i++) hlex_byte(xs[i]);\n";
+			out += "}\n";
+			
+			out += "\n";
+			out += "string valstr;\n";
+			out += "string errstr;\n";
+			out += "int toks = 0;\n";
+			
+			out += "inline void err_token() {\n";
+			out += "	if(errstr.length()!=0) {\n";
+			out += "		fputc(0xfe,stdout);\n";
+			out += "		hlex_string(errstr);\n";
+			out += "		fputc(0,stdout);\n";
+			out += "		errstr.clear();\n";
+			out += "\n";
+			out += "		if(((++toks)%=100)==0) fflush(stdout);\n";
+			out += "	}\n";
+			out += "}\n";
+
+			out += "\n";
+			
+			var states = FaUtil(CharSet).split_states(dfa).all;
+			
+			out += extra;
+			out += "\n";
+			var map = new StringSet()();
+			for(state in states) {
+				if(!state.accepting) continue;
+				var rule = state.attr.func("");
+				if(rule.ign) continue;
+				
+				if(!map.insert(rule.name)) continue;
+				
+				if(rule.attr==null) continue; //these don't use functions to build token.
+				
+			out += "void token_"+rule.name+"() {\n";
+
+				var idd = rule.id-1; //0 = error in rules
+				if(idd==10) idd = 124;
+				if(idd==13) idd = 125;
+				idd |= 0x80;
+			out += "	fputc("+idd+",stdout);\n";
+			out += "	";
+					var esc = false;
+					for(i in 0...rule.attr.length) {
+						var c = rule.attr.charCodeAt(i);
+						if(c==Unicode.wchar('\\') && !esc) {
+							esc = true; out += '\\';
+						}else if(esc) {
+							esc = false; out += rule.attr.charAt(i);
+						}else if(c == Unicode.wchar('%')) {
+							out += " valstr ";
+						}else out += rule.attr.charAt(i);
+					}
+					out += "\n";
+			out += "	fputc(0,stdout);\n";
+				
+			out += "}\n";
+			}
+			out += "\n";
+			out += "const short entry_state = "+dfa.id+";\n";
+			out += "struct Transition {\n";
+			out += "	short state;\n";
+			out += "	char flags; // !0 = accepting, bit 2 set = ign, bit 3 set = token (T) or id (F)\n";
+			out += "	union {\n";
+			out += "		void (*token)();\n";
+			out += "		char id;\n";
+			out += "	};\n";
+			out += "};\n";
+			out += "#define DT {-1,0,NULL}\n";
+			out += "const Transition transitions[] = {\n";
+			
+			var fst = true;
+			for(state in states) {				
+				var outs = [];
+				for(i in 0...RegExp.maxpoint+1) outs.push(null);
+				for(out in state.out) {
+					var dat = if(out.to.accepting) {
+						var rule = out.to.attr.func("");
+						var flags = 1;
+						var data = "NULL";
+						if(rule.ign) {}
+						else {
+							flags |= 2;
+							if(rule.attr!=null) {
+								flags |= 4;
+								data = "&token_"+rule.name;
+							}else {
+								var rid = rule.id-1;
+								if(rid==10) rid = 124;
+								if(rid==13) rid = 125;
+								data = "(void(*)())"+Std.string(rid);
+							}
+						}
+						{ state : out.to.id, flags : flags, data : data };
+					}else
+						{ state : out.to.id, flags : 0, data : "NULL" };
+					
+					var x:CharSet = out.match;
+					LLIter(R,x.ranges,{
+						for(i in R.from...R.to+1) {
+							if(out.to.id==-1) outs[i] = null;
+							else outs[i] = dat;
+						}
+					});
+				}
+				
+				for(i in outs) {
+					if(!fst) out += ",";
+					fst = false;
+					out += if(i==null) "DT"
+						   else "{"+Std.string(i.state)+","+Std.string(i.flags)+","+i.data+"}";
+				}
+				out += "\n";
+			}
+			out += "};\n";
+			out += "\n";
+			out += "int main(int argc, char** argv) {\n";
+			out += "	char* file = NULL;\n";
+			out += "	int psize = 0;\n";
+			out += "	char addr[0xff]; int adi = 0;\n";
+			out += "	while(true) {\n";
+			
+			out += "		char c = getchar();\n";
+			out += "		if(c<32 && adi==0) continue;\n";
+			out += "		addr[adi++] = c<32 ? 0 : c;\n";
+			out += "		if(c<32) {\n";
+			out += "			if(strcmp(addr,\":q\")==0) break;\n";
+			out += "			adi = 0;\n";
+			out += "		}else continue;\n";
+			out += "\n";
+			
+			out += "		FILE* fp = fopen(addr,\"rb\");\n";
+			out += "		if(fp==NULL) return 2;\n";
+			out += "\n";
+			
+			out += "		fseek(fp,0,SEEK_END);\n";
+			out += "		int size = ftell(fp);\n";
+			out += "		fseek(fp,0,SEEK_SET);\n";
+			out += "\n";
+			
+			out += "		if(size>psize) {\n";
+			out += "			file = (char*)realloc(file,size);\n";
+			out += "			psize = size;\n";
+			out += "		}\n";
+			out += "		size = fread(file,1,size,fp);\n";
+			out += "		fclose(fp);\n";
+			out += "		char* end = file+size;\n";
+			out += "\n";
+			
+			out += "		bool valid = false;\n";
+			out += "		Transition attr;\n";
+			out += "		int valcnt = 0;\n";
+			out += "		char* ipos = file;\n";
+			out += "		char* pos = file;\n";
+			out += "\n";
+			out += "		bool errstate = false;\n";
+			out += "\n";
+			out += "		short state = entry_state;\n";
+			out += "		toks = 0;\n";
+			out += "		while(pos<end) {\n";
+			out += "			unsigned char c = *pos; //handle unicode?\n";
+			out += "			int offset = (c>"+RegExp.maxpoint+" ? "+(RegExp.maxpoint)+" : (int)c);\n";
+			out += "			Transition to = transitions[state*"+(RegExp.maxpoint+1)+"+offset];\n";
+			out += "			state = to.state;\n";
+			out += "\n";
+			out += "			if(state==-1) {\n";
+			out += "				if(!valid) {\n";
+			out += "					if(!errstate) { if(((unsigned char)*ipos)>31) errstr.push_back(*ipos); }\n";
+			out += "					else if(c>31) errstr.push_back(c);\n";
+			out += "					pos = ipos+1;\n";
+			out += "				}else {\n";
+			out += "					err_token();\n";
+			
+			out += "					if(attr.flags&2) {\n";
+			out += "						if(attr.flags&4) {\n";
+			out += "							pos = ipos;\n";
+			out += "							valstr.clear();\n";
+			out += "							while(valcnt-->0) valstr.push_back(*(pos++));\n";
+			out += "							attr.token();\n";
+			out += "						}else {\n";
+			out += "							fputc(attr.id,stdout);\n";
+			out += "							pos = ipos+valcnt;\n";
+			out += "						}\n";
+			out += "						if(((++toks)%=100)==0) fflush(stdout);\n";
+			out += "					}else pos = ipos+valcnt;\n";
+			
+			out += "				}\n";
+			out += "				errstate = !valid;\n";
+			
+			out += "				//reset state\n";
+			out += "				state = entry_state;\n";
+			out += "				valid = false;\n";
+			out += "				ipos = pos;\n";
+			out += "			}else {\n";
+			out += "				pos++;\n";
+			out += "				errstate = false;\n";
+			out += "			}\n";
+			
+			out += "\n";
+			out += "			if(to.flags) {\n";
+			out += "				valid = true;\n";
+			out += "				valcnt = pos-ipos;\n";
+			out += "				attr = to;\n";
+			out += "			}else if(pos==end) {\n";
+			out += "				if(!valid) {\n";
+			out += "					if(!errstate) { if(((unsigned char)*ipos)>31) errstr.push_back(*ipos); }\n";
+			out += "					pos = ipos+1;\n";
+			out += "				}else {\n";
+			out += "					err_token();\n";
+			
+			out += "					if(attr.flags&2) {\n";
+			out += "						if(attr.flags&4) {\n";
+			out += "							pos = ipos;\n";
+			out += "							valstr.clear();\n";
+			out += "							while(valcnt-->0) valstr.push_back(*(pos++));\n";
+			out += "							attr.token();\n";
+			out += "						}else {\n";
+			out += "							fputc(attr.id,stdout);\n";
+			out += "							pos = ipos+valcnt;\n";
+			out += "						}\n";
+			out += "						if(((++toks)%=100)==0) fflush(stdout);\n";
+			out += "					}else pos = ipos+valcnt;\n";
+			
+			out += "				}\n";
+			out += "				errstate = !valid;\n";
+			
+			out += "				//reset state\n";
+			out += "				state = entry_state;\n";
+			out += "				valid = false;\n";
+			out += "				ipos = pos;\n";
+			out += "			}\n";
+			out += "		}\n";
+			
+			out += "		if(ipos<end) {\n";
+			out += "			if(!valid) {\n";
+			out += "				if(!errstate) { if(((unsigned char)*ipos)>31) errstr.push_back(*ipos); }\n";
+			out += "				else if(c>31) errstr.push_back(c);\n";
+			out += "				pos = ipos+1;\n";
+			out += "			}else {\n";
+			out += "				err_token();\n";
+
+			out += "				if(attr.flags&2) {\n";
+			out += "					if(attr.flags&4) {\n";
+			out += "						pos = ipos;\n";
+			out += "						valstr.clear();\n";
+			out += "						while(valcnt-->0) valstr.push_back(*(pos++));\n";
+			out += "						attr.token();\n";
+			out += "					}else {\n";
+			out += "						fputc(attr.id,stdout);\n";
+			out += "						pos = ipos+valcnt;\n";
+			out += "					}\n";
+			out += "					if(((++toks)%=100)==0) fflush(stdout);\n";
+			out += "				}else pos = ipos+valcnt;\n";
+			
+			out += "			}\n";
+			out += "		}\n";
+			
+			out += "		err_token();\n";
+			
+			out += "		fputc(0x7f,stdout);\n";
+			out += "		fflush(stdout);\n";
+			
+			out += "	}\n";
+			out += "	return 0;\n";
+			out += "}\n";
+			
+			var file = File.write(".temp.hlex.cpp", false);
+			file.writeString(out);
+			file.flush();
+			file.close();
+			
+			neko.Lib.println(" >> g++ compilation.");
+			
+			if(neko.Sys.command("g++",[".temp.hlex.cpp","-s","-O3","-funroll-loops","-fexpensive-optimizations","-o",args[2]])!=0)
+				Sys.exit(1);
+			
+			var epath = neko.Sys.executablePath();
+			var ia = epath.lastIndexOf('/');
+			var ib = epath.lastIndexOf('\\');
+			epath = epath.substr(0, if(ia==-1) ib else if(ib==-1) ia else if(ia>ib) ia else ib);
+			
+			file = File.write(args[3], false);
+			file.writeString(File.getContent(epath+"/hlex_utils"));
+			file.flush();
+			file.close();
+		}else {
+			
+			out += "package "+packname+";\n";
+			out += "\n";
+			out += extra;
+			out += "\n";
+			out += "class HLex {\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			out += "	    static inline var entry_state:Int = "+dfa.id+";\n";
+			out += "\n";
+			
+			var states = FaUtil(CharSet).split_states(dfa).all;
+			out += "        static var transitions = ";
+			out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
+				var outs = [];
+				for(i in 0...RegExp.maxpoint+1) outs.push(-1);
+				
+				for(out in state.out) {
+					var x:CharSet = out.match;
+					LLIter(R, x.ranges, {
+						for(i in R.from...R.to+1)
+							outs[i] = out.to.id;
+					});
+				}
+				return Textual.array_string(cast outs);
+			});
+			out += ";\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			out += "\n";
+			out += "        static var accepting = ";
+			out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
+				return if(state.accepting) "true" else "false";
+			});
+			out += ";\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			out += "\n";
+			out += "	public static function lexify(input_string:String):Array<Token> {\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			var epath = neko.Sys.executablePath();
+			var ia = epath.lastIndexOf('/');
+			var ib = epath.lastIndexOf('\\');
+			epath = epath.substr(0, if(ia==-1) ib else if(ib==-1) ia else if(ia>ib) ia else ib);
+			
+			out += File.getContent(epath+"/hlex_lexer");
+			
+			//--------------------------------------------------------------------------------------
+			
+			out += "	}\n";
+			
+			out += "    static inline function tokenof(id:Int, hxl_ustr:UStr):Token {\n";
+			out += "        switch(id) {\n";
+			out += "            default: return null;\n";
+			for(x in states) {
+				if(!x.accepting || x.attr==null) continue;
+				var rule = x.attr.func("");
+				if(rule.ign) continue;
+				out += "            case "+x.id+":\n";
+				out += "                var hxl_match = Unicode.string(hxl_ustr);\n";
+				out += "                return Token.get(Token.t_"+rule.name+",";
+				if(rule.attr != null) {
+					out += "({";
+					var esc = false;
+					for(i in 0...rule.attr.length) {
+						var c = rule.attr.charCodeAt(i);
+						if(c==Unicode.wchar('\\') && !esc) {
+							esc = true; out += '\\';
+						}else if(esc) {
+							esc = false; out += rule.attr.charAt(i);
+						}else if(c == Unicode.wchar('%')) {
+							out += " hxl_match ";
+						}else out += rule.attr.charAt(i);
+					}
+					out += "})";
+				}else out += "null";
+				out += ");\n";
+			}
+			out += "        }\n";
+			out += "    }\n";
+			out += "}\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			out += "class Token {\n";
+			out += "	public var data:Dynamic;\n";
+			out += "	public var id:Int;\n";
+			out += "\n";
+			out += "	public var pool_next:Token;\n";
+			out += "    public static var pool:Token;\n";
+			out += "\n";
+			for(xs in rules) {
+				var x = xs.data;
+				if(x.ign) continue;
+				out += "	public static inline var t_"+x.name+" = "+x.id+";\n";
+			}
+			out += "\n";
+			out += "	public static inline var t_error = 0;\n";
+			out += "\n";
+			out += "    static inline public function get(id:Int, data:Dynamic) {\n";
+			out += "        if(pool==null) return new Token(id,data);\n";
+			out += "        else {\n";
+			out += "            var ret = pool; pool = ret.pool_next;\n";
+			out += "            ret.id = id; ret.data = data;\n";
+			out += "            return ret;\n";
+			out += "        }\n";
+			out += "    }\n";
+			out += "    public inline function free() { pool_next = pool; pool = this; }\n";
+			out += "	function new(id:Int, data:Dynamic) {\n";
+			out += "		this.id = id; this.data = data;\n";
+			out += "	}\n";
+			out += "\n";
+			out += "	public inline function toString() {\n";
+			var rmap = new IntMap(String)(); //to order by id rather than name
+			for(xs in rules) {
+				if(xs.data.ign) continue;
+				rmap.insert(xs.data.id,xs.data.name);
+			}
+
+			out += "        var names = [\"error\"].concat(";
+			out += Textual.array_string(cast rmap, function(x:{data:String}) return "\""+x.data+"\"");
+			out += ");\n";
+			
+			out += "		return names[id]+(data==null?\"\":\"(\"+data+\")\");\n";
+			out += "	}\n";
+			out += "}\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			out += File.getContent(epath+"/hlex_ustr");
+			
+			var file = File.write(args[2], false);
+			file.writeString(out);
+			file.flush();
+			file.close();
+		}
+
+		Sys.exit(0);
+		return;
+	}
+}
+
+
+class CharRangeInt {
+	public var from:WChar;
+	public var to  :WChar;
+	public var target:Int;
+	
+	public function new(from:WChar, to:WChar, target:Int) {
+		this.from = from;
+		this.to = to;
+		this.target = target;
+	}
+	
+	public inline function compare(x:CharRangeInt) {
+		if     (from < x.from) return -1;
+		else if(from > x.from) return 1;
+		else if(to < x.to) return -1;
+		else if(to > x.to) return 1;
+		else return 0;
+	}
+}

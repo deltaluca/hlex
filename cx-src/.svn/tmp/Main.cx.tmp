@@ -1,0 +1,803 @@
+package;
+
+import util.Set;
+import util.UStr;
+import util.CharSet;
+import util.FA;
+import util.RegExp;
+import util.LList;
+
+//using UStr.Unicode;
+//using FA.FaUtil(CharSet);
+
+import neko.Sys;
+import neko.Lib;
+import neko.io.File;
+
+import HLex;
+import HLlr;
+import util.Textual;
+
+typedef Rule = { name:String, id:Int, attr:String, nfa:NFA(CharSet), ign:Bool };
+
+class Main {
+	static function main() {
+		var args = Sys.args();
+		if(args.length < 2) {
+			Lib.println("Usage: hlex descriptor.hxl output.hx [-package name] [-unicode maxpoint]");
+			Lib.println("");
+			Lib.println("   For syntax of hxl view readme.txt");
+			Lib.println("");
+			Lib.println("   -unicode maxpoint : maximum unicode point value that can be explicitly matched (implicit matching due to '.' wildcard or [^..] negation is not limited to this range. Default is ASCII range.");
+			
+			Sys.exit(1);
+			return;
+		}
+		
+		//------------------------------------------------------------------------------------------
+		
+		Lib.println(" >> Initialising");
+		
+		var packname = "";
+		
+		var iarg = 2;
+		while(iarg+1 < args.length) {
+			var flag = args[iarg++];
+			if(flag=="-unicode") RegExp.maxpoint = Std.parseInt(args[iarg++]);
+			else if(flag=="-package") packname = args[iarg++];
+			else Lib.println("Unrecognised flag "+flag);
+		}
+		
+		//------------------------------------------------------------------------------------------
+		
+		Lib.println(" >> Lexing descriptor");
+		
+		var hxl = File.getContent(args[0]);
+		var tokens = HLex.lexify(hxl);
+		
+		var terminals = new Array<Terminal>();
+		for(i in tokens) {
+			var p = switch(i.id) {
+				case Token.t_ident: Terminal.IDENT.inst(i.data);
+				case Token.t_int  : Terminal.INT.inst(i.data);
+				case Token.t_attrx: Terminal.ATTR;
+				case Token.t_lpar: Terminal.LPAR;
+				case Token.t_rpar: Terminal.RPAR;
+				case Token.t_colon: Terminal.COLON;
+				case Token.t_coleq: Terminal.COLEQ;
+				case Token.t_regexp: Terminal.REGEXP.inst(i.data);
+				case Token.t_haxe:   Terminal.HAXE.inst(i.data);
+				case Token.t_NULLx: Terminal.NULL;
+				case Token.t_error: Terminal.ERROR;
+				default: null;
+			}
+			if(p!=null) terminals.unshift(p);
+		}
+		terminals.unshift(Terminal.DOLLAR);
+		
+		Lib.println(" >> Parsing descriptor");
+
+		var hlx:Array<HLX> = cast HLlr.parse(terminals);
+		
+		for(i in Error.errors)
+			Lib.println("ERROR: "+i);
+		
+		if(Error.errors.length>0) Sys.exit(1);
+		
+		//------------------------------------------------------------------------------------------
+		
+		Lib.println(" >> Building NFA");
+		
+		var extra = "";
+		var errs = false;
+		var rules = new StringMap(Rule)();
+		var nfrules = new Array<NFA(CharSet)>();
+		var tokenid = 1;
+		
+		for(S in hlx) {
+			switch(S) {
+				case hlx_ignore(n,p,reg):
+					if(rules.has(n)) {
+						Lib.println("ERROR: Rule "+n+" already exists in rule declaration!");
+						errs = true;
+					}
+					var nfa = RegExp.nfa(Unicode.fromString(reg));
+					var rule = { name : n, id : -1, nfa : nfa, attr : null, ign : true };
+					FaUtil(CharSet).attribute(nfa, p, function(_) return rule);
+					
+					nfrules.push(nfa);
+					rules.insert(n,rule);
+				
+				case hlx_decl(n,p,reg):
+					if(rules.has(n)) {
+						Lib.println("ERROR: Rule "+n+" already exists in rule declaration!");
+						errs = true;
+					}
+					var nfa = RegExp.nfa(Unicode.fromString(reg));
+					var rule = { name : n, id : tokenid++, nfa : nfa, attr : null, ign : false };
+					FaUtil(CharSet).attribute(nfa, p, function(_) return rule);
+					
+					nfrules.push(nfa);
+					rules.insert(n,rule);
+					
+				case hlx_attr(n, attr):
+					var rule = rules.get(n);
+					if(rule==null) {
+						Lib.println("ERROR: Rule "+n+" does not exist in attribute definition!");
+						errs = true;
+					}
+					
+					rule.attr = attr;
+					
+				case hlx_extra(haxe):
+					extra += haxe;
+			}
+		}
+		
+		if(errs) Sys.exit(1);
+		
+		//------------------------------------------------------------------------------------------
+		
+		neko.Lib.println(" >> Building DFA");
+		
+		var nfa = FaUtil(CharSet).dfa_cons(nfrules);
+		var dfa = FaUtil(CharSet).dfa(nfa);
+		
+		neko.Lib.println(" >> Minimalising DFA");
+
+		dfa = FaUtil(CharSet).minimal(dfa);
+
+		//------------------------------------------------------------------------------------------
+		//output to file.
+		
+		neko.Lib.println(" >> Outputting to file");
+		
+		var out = "package "+packname+";\n";
+		out += "\n";
+		out += extra;
+		out += "\n";
+		out += "class HLex {\n";
+		out += "	public static function lexify(input_string:String):Array<Token> {\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "		var entry_state:Int = "+dfa.id+";\n";
+		out += "\n";
+		/*out += "		var transitions:Array<Array<Array<Int>>> = [];\n";
+		out += "		var tranx:Array<Array<Int>>;\n";
+		var states = FaUtil(CharSet).split_states(dfa).all;
+		//
+		for(state in states) {
+			var ordered_out = new Set(CharRangeInt)();
+			for(out in state.out) {
+				var x:CharSet = out.match;
+				LLIter(R, x.ranges,
+					ordered_out.insert(new CharRangeInt(R.from,R.to, out.to.id))
+				);
+			}
+			
+			out += "            tranx = []; ";
+			for(i in ordered_out) {
+				if(i.to == RegExp.maxpoint) i.to = -1;
+				
+				out += "tranx.push(["+i.from+","+i.to+", "+i.target+"]);";
+			}
+			out += "transitions.push(tranx);\n";
+		}*/
+		var states = FaUtil(CharSet).split_states(dfa).all;
+		out += "        var transitions = ";
+		out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
+			var ordered_out = new Set(CharRangeInt)();
+			for(out in state.out) {
+				var x:CharSet = out.match;
+				LLIter(R, x.ranges,
+					ordered_out.insert(new CharRangeInt(R.from,R.to, out.to.id))
+				);
+			}
+			
+			return Textual.array_string(cast ordered_out, function(i:CharRangeInt) {
+				if(i.to == RegExp.maxpoint) i.to = -1;
+				return "["+i.from+","+i.to+", "+i.target+"]";
+			});
+		});
+		out += ";\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "\n";
+		/*out += "		var accepting:Array<Bool> = [];\n";
+		for(state in states) {
+			out += "            accepting.push(";
+			out += if(state.accepting) "true" else "false";
+			out += ");\n";
+		}*/
+		out += "        var accepting = ";
+		out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
+			return if(state.accepting) "true" else "false";
+		});
+		out += ";\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "\n";
+		/*out += "		var tokens = [];\n";
+		for(state in states) {
+			//out += if(state.accepting) "token_"+state.attr.func([]).name else "null";
+			out += "            tokens.push("; 
+			if(state.accepting) {
+				var rule = state.attr.func([]);
+				if(rule.ign) out += "null";
+				else out += "token_"+rule.name;
+			}else out += "null";
+			out += ");\n";
+		}*/
+		out += "        var tokens = ";
+		out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
+			if(state.accepting) {
+				var rule = state.attr.func([]);
+				if(rule.ign) return "null";
+				else return "token_"+rule.name;
+			}else return "null";
+		});
+		out += ";\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		var epath = neko.Sys.executablePath();
+		var ia = epath.lastIndexOf('/');
+		var ib = epath.lastIndexOf('\\');
+		epath = epath.substr(0, if(ia==-1) ib else if(ib==-1) ia else if(ia>ib) ia else ib);
+		
+		out += File.getContent(epath+"/hlex_lexer");
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "	}\n";
+		
+		var map = new StringSet()();
+		for(x in states) {
+			if(!x.accepting || x.attr==null) continue;
+			var rule = x.attr.func("");
+			if(!map.insert(rule.name) || rule.ign) continue;
+			
+			out += "\n";
+			out += "	static function token_"+rule.name+"(hxl_match:String):Token {\n";
+			out += "		return new Token(Token.t_"+rule.name+",";
+			if(rule.attr != null) {
+				out += "({";
+				var esc = false;
+				for(i in 0...rule.attr.length) {
+					var c = rule.attr.charCodeAt(i);
+					if(c==Unicode.wchar('\\') && !esc) {
+						esc = true; out += '\\';
+					}else if(esc) {
+						esc = false; out += rule.attr.charAt(i);
+					}else if(c == Unicode.wchar('%')) {
+						out += " hxl_match ";
+					}else out += rule.attr.charAt(i);
+				}
+				out += "})";
+			}else out += "null";
+			out += ");\n";
+			out += "	}\n";
+		}
+		out += "\n}\n";
+		out += "\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "class Token {\n";
+		out += "	public var data:Dynamic;\n";
+		out += "	public var id:Int;\n";
+		out += "\n";
+		out += "	public var line:Int;\n";
+		out += "	public var char:Int;\n";
+		out += "\n";
+		for(xs in rules) {
+			var x = xs.data;
+			if(x.ign) continue;
+			out += "	public static inline var t_"+x.name+" = "+x.id+";\n";
+		}
+		out += "\n";
+		out += "	public static inline var t_error = 0;\n";
+		out += "\n";
+		out += "	public function new(id:Int, data:Dynamic) {\n";
+		out += "		this.id = id; this.data = data;\n";
+		out += "	}\n";
+		out += "\n";
+		out += "	public inline function toString() {\n";
+		var rmap = new IntMap(String)(); //to order by id rather than name
+		for(xs in rules) {
+			if(xs.data.ign) continue;
+			rmap.insert(xs.data.id,xs.data.name);
+		}
+		/*out += "		var names=[\"error\"];\n";
+		for(x in rmap) out += "            names.push(\""+x.data+"\");\n";*/
+		out += "        var names = [\"error\"].concat(";
+		out += Textual.array_string(cast rmap, function(x:{data:String}) return "\""+x.data+"\"");
+		out += ");\n";
+		
+		out += "		return names[id]+(data==null?\"\":\"(\"+data+\")\");\n";
+		out += "	}\n";
+		out += "}\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += File.getContent(epath+"/hlex_ustr");
+		
+		//------------------------------------------------------------------------------------------
+		
+		var file = File.write(args[1], false);
+		file.writeString(out);
+		file.flush();
+		file.close();
+
+		Sys.exit(0);
+		return;
+	}
+}
+
+
+class CharRangeInt {
+	public var from:WChar;
+	public var to  :WChar;
+	public var target:Int;
+	
+	public function new(from:WChar, to:WChar, target:Int) {
+		this.from = from;
+		this.to = to;
+		this.target = target;
+	}
+	
+	public inline function compare(x:CharRangeInt) {
+		if     (from < x.from) return -1;
+		else if(from > x.from) return 1;
+		else if(to < x.to) return -1;
+		else if(to > x.to) return 1;
+		else return 0;
+	}
+}
+
+/*package;
+
+import util.Set;
+import util.UStr;
+import util.CharSet;
+import util.FA;
+import util.RegExp;
+import util.LList;
+
+using UStr.Unicode;
+using FA.FaUtil(CharSet);
+
+import neko.Sys;
+import neko.Lib;
+import neko.io.File;
+
+typedef Rule = { name : String, prec : Int, regexp : UStr, attr : String, type : String, arg : String };
+
+class Main {
+	
+	static function main() {
+		
+		var args = Sys.args();
+		if(args.length < 2) {
+			Lib.println("Usage:");
+			Lib.println(">> hlex descriptor.hxl output.hx [-package name] [-unicode maxpoint]");
+			Lib.println("");
+			Lib.println("   For syntax of hxl view readme.txt");
+			Lib.println("");
+			Lib.println("   -unicode maxpoint : maximum unicode point value that can be explicitly matched (implicit matching due to '.' wildcard or [^..] negation is not limited to this range. Default is ASCII range.");
+			
+			Sys.exit(1);
+			return;
+		}
+		
+		neko.Lib.println(" >> Initialising");
+		
+		//------------------------------------------------------------------------------------------
+		//utils
+		
+		var packname = "";
+		
+		var iarg = 2;
+		while(iarg+1 < args.length) {
+			var flag = args[iarg++];
+			if(flag=="-unicode") RegExp.maxpoint = Std.parseInt(args[iarg++]);
+			else if(flag=="-package") packname = args[iarg++];
+		}
+		
+		var ws = function (c) return c < 33;
+		var nl = function (c) return c == '\n'.wchar();
+		
+		var findnl = function(x:UStr,i) {
+			while(i<x.length) {
+				var c = x[i];
+				if(c=='\n'.wchar()) return i;
+				i++;
+			}
+			return x.length+1;
+		};
+		
+		//line number and position
+		var lnum = 1; var lpos = -1;
+		var skipws = function(x:UStr, i) {
+			while(i < x.length && ws(x[i])) {
+				if(nl(x[i])) {
+					lpos = i;
+					lnum++;
+				}
+				i++;
+			}
+			return i;
+		};
+		
+		//------------------------------------------------------------------------------------------
+		//parser
+		
+		$(mixin regexp(x) RegExp.nfa(x.fromString()));
+		var integer = regexp("[+\\-]?[0-9]+");
+		var attr    = regexp("attr");
+		
+		integer.attribute(0, function(x:UStr) return Std.parseInt(x.string()));
+		attr   .attribute(0, function(_) return null);
+		
+		//base lexer for statements in hxl.
+		var nlexer = FaUtil(CharSet).dfa_cons([integer,attr]);
+		var lexer = nlexer.dfa();
+		lexer = lexer.minimal();
+		
+		//util regexps
+		$(mixin dfaexp(x) regexp(x).dfa().minimal());
+		var ident   = dfaexp("[a-zA-Z_][a-zA-Z_0-9]*");
+		var colon   = dfaexp(":");
+		var coloneq = dfaexp(":=");
+		var lpar    = dfaexp("\\(");
+		var rpar    = dfaexp("\\)");
+		var lambda  = dfaexp("\\\\\\(");
+		var hash    = dfaexp("#");
+		var lbrace  = dfaexp("\\{");
+		var rbrace  = dfaexp("\\}");
+		
+		var skipbrace = dfaexp("(\"[^\"]*\")|('[^']*')|(\\*+([^*//*]|[\r\n])))*\\*+/)|(//.*)");
+		
+		var pos = 0; //position in stream
+		var errs = false; //has error occured
+		
+		//error function
+		var err = function() {
+			errs = true;
+			return "at line "+lnum+" char "+(pos-lpos);
+		};
+		
+		//input descriptor
+		var hxl = File.getContent(args[0]).fromString();
+		var rules = new StringMap(Rule)();
+		
+		var stderr = function(regexp:DFA(CharSet),errstr) {
+			var match = regexp.match(hxl,pos);
+			if(!match.valid) {
+				Lib.println("Lexer error : "+errstr+" "+err());
+				pos = findnl(hxl,pos);
+				return true;
+			}
+			pos = skipws(hxl,pos+match.matched);
+			return false;
+		};
+		
+		neko.Lib.println(" >> Parsing descriptor file");
+		
+		while(pos < hxl.length) {
+			var ipos = pos;
+			pos = skipws(hxl,pos);
+			if(pos!=ipos) continue;
+			
+			if(hash.match(hxl,pos).valid) {
+				//skip comment
+				pos = findnl(hxl,pos);
+				continue;
+			}
+			
+			var match = lexer.match(hxl,pos);
+			if(!match.valid) {
+				Lib.println("Lexer error : unrecognised token at start of statement "+err());
+				pos = findnl(hxl,pos);
+				continue;
+			}
+			var res = match.func(hxl.substr(pos,match.matched));
+			pos += match.matched;
+			
+			//new rule
+			if(Std.is(res,Int)) {
+				var prec:Int = cast res;
+				pos = skipws(hxl,pos);
+				
+				if(stderr(colon,"expected ':' following rule precedence")) continue;
+				
+				var id = ident.match(hxl,pos);
+				if(!id.valid) {
+					Lib.println("Lexer error : invalid identifier for rule name "+err());
+					pos = findnl(hxl,pos);
+					continue;
+				}
+				var name = hxl.substr(pos,id.matched).string();
+				var cont = true;
+				if(rules.has(name)) {
+					Lib.println("Lexer error : rule '"+name+"' already exists! "+err());
+					cont = false;
+				}
+				pos = skipws(hxl, pos+id.matched);
+				
+				if(stderr(coloneq,"expected ':=' following rule name")) continue;
+				
+				var end = findnl(hxl,pos);
+				var regexp = hxl.substr(pos,end-1-pos);
+				pos = end;
+				
+				if(cont) {
+					var rule = { name : name, prec : prec, regexp : regexp, attr : "", type : "", arg : "" };
+					rules.insert(name,rule);
+				}
+			}
+			//rule attribute
+			else if(res==null) {
+				pos = skipws(hxl,pos);
+				
+				stderr(lpar,"expected '(' following 'attr' keyword");
+				
+				var id = ident.match(hxl,pos);
+				if(!id.valid) {
+					Lib.println("Lexer error : expected identifier for attribute definition "+err());
+					pos = findnl(hxl,pos);
+					continue;
+				}
+				
+				var name = hxl.substr(pos,id.matched).string();
+				var cont = true;
+				if(!rules.has(name)) {
+					Lib.println("Lexer error : rule '" + name + "' doe snot exist! "+err());
+					cont = false;
+				}
+				pos += id.matched;
+				
+				if(stderr(rpar,"expected ')' following attribute name")) continue;
+				if(stderr(coloneq,"expected ':=' following attribute declaration")) continue;
+				if(stderr(lambda,"expected '\\(' following := in attribute declaration")) continue;
+				
+				var argd = ident.match(hxl,pos);
+				if(!argd.valid) {
+					Lib.println("Lexer error : expected identifier for attribute argument name "+err());
+					pos = findnl(hxl,pos);
+					continue;
+				}
+				var arg = hxl.substr(pos, argd.matched);
+				pos = skipws(hxl,pos+argd.matched);
+				
+				if(stderr(rpar,"expected ')' following attribute argument name")) continue;
+				if(stderr(colon,"expected ':' following ')' in attribute definition")) continue;
+				
+				var typed = ident.match(hxl,pos);
+				if(!typed.valid) {
+					Lib.println("Lexer error : expected identifier for attribute return type "+err());
+					pos = findnl(hxl,pos);
+					continue;
+				}
+				var type = hxl.substr(pos, typed.matched);
+				pos = skipws(hxl,pos+typed.matched);
+				
+				var rest = new UStr();
+				if(lbrace.match(hxl,pos).valid) {
+					var cnt = 1;
+					var opos = pos;
+					while(++pos < hxl.length && cnt>0) {
+						//skip comments and strings
+						var skip = skipbrace.match(hxl,pos);
+						if(skip.valid) { 
+							for(i in 0...skip.matched-1) {
+								if(nl(hxl[pos])) {
+									lnum++;
+									lpos = pos;
+								}
+								pos++;
+							}
+							continue;
+						}
+						
+						if     (lbrace.match(hxl,pos).valid) cnt++;
+						else if(rbrace.match(hxl,pos).valid) cnt--;
+						if(nl(hxl[pos])) {
+							lnum++;
+							lpos = pos;
+						}
+					}
+					
+					rest = hxl.substr(opos,pos-opos);
+				}else {
+					var end = findnl(hxl,pos);
+					rest = hxl.substr(pos,end-1-pos);
+					pos = end;
+				}
+				
+				if(cont) {
+					var rule = rules.get(name);
+					rule.arg  = arg.string();
+					rule.attr = rest.string();
+					rule.type = type.string();
+				}
+			}
+		}
+		
+		if(errs) Sys.exit(1);
+		
+		//------------------------------------------------------------------------------------------
+		//finished parsing, build dfa.
+
+		neko.Lib.println(" >> Building NFA");
+
+		var nfrules = new Array<NFA(CharSet)>();
+		for(x in rules) {
+			var rule = RegExp.nfa(x.data.regexp);
+			rule.attribute(x.data.prec, function (_) return x.data);
+			nfrules.push(rule);
+		}
+		
+		neko.Lib.println(" >> Building DFA");
+			
+		var nfa = FaUtil(CharSet).dfa_cons(nfrules);
+		var dfa = nfa.dfa();
+		
+		neko.Lib.println(" >> Minimalising DFA");
+		
+		dfa = dfa.minimal();
+		
+		//------------------------------------------------------------------------------------------
+		//output to file.
+		
+		neko.Lib.println(" >> Outputting to file");
+		
+		var out = "package "+packname+";\n";
+		out += "\n";
+		out += "class HLex {\n";
+		out += "	public static function lexify(input_string:String):Array<LToken> {\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "		var entry_state:Int = "+dfa.id+";\n";
+		out += "\n";
+		out += "		var transitions:Array<Array<Array<Int>>> = [\n";
+		
+		var states = dfa.split_states().all;
+		//
+		var fst0 = true;
+		for(state in states) {
+			if(!fst0) out += ",\n";
+			fst0 = false;
+			
+			var ordered_out = new Set(CharRangeInt)();
+			for(out in state.out) {
+				var x:CharSet = out.match;
+				LLIter(R, x.ranges,
+					ordered_out.insert(new CharRangeInt(R.from,R.to, out.to.id))
+				);
+			}
+			
+			out += "[";
+			var fst1 = true;
+			for(i in ordered_out) {
+				if(!fst1) out += ",";				
+				fst1 = false;
+				if(i.to == RegExp.maxpoint) i.to = -1;
+				out += "["+i.from+","+i.to+", "+i.target+"]";
+			}
+			out += "]";
+		}
+		out += "		];\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "\n";
+		out += "		var accepting:Array<Bool> = [\n";
+		var fst0 = true;
+		for(state in states) {
+			if(!fst0) out += ",";
+			fst0 = false;
+			out += if(state.accepting) "true" else "false";
+		}
+		out += "		];\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "\n";
+		out += "		var tokens = [";
+		var fst0 = true;
+		for(state in states) {
+			if(!fst0) out += ",";
+			fst0 = false;
+			out += if(state.accepting) "token_"+state.attr.func([]).name else "null";
+		}
+		out += "		];\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		var epath = neko.Sys.executablePath();
+		var ia = epath.lastIndexOf('/');
+		var ib = epath.lastIndexOf('\\');
+		epath = epath.substr(0, if(ia==-1) ib else if(ib==-1) ia else if(ia>ib) ia else ib);
+		
+		out += File.getContent(epath+"/hlex_lexer");
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "	}\n";
+		
+		var map = new StringSet()();
+		for(x in states) {
+			//if(!x.accepting || x.attr==null || map.has(x.attr.id)) continue;
+			//map.set(, true);
+			if(!x.accepting || x.attr==null) continue;
+			var rule = x.attr.func("");
+			if(map.has(rule.name)) continue;
+			map.insert(rule.name);
+			
+			out += "\n";
+			out += "	static function token_"+rule.name+"(";
+			out += if(rule.attr.length > 0) rule.arg else "match";
+			out += ":String):LToken return Token.t_"+rule.name;
+			if(rule.attr.length > 0) out += "(" + rule.attr +")";
+		}
+		
+		out += "\n}\n";
+		
+		out += "\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += "enum LToken {\n";
+		for (xs in rules) {
+			var x = xs.data;
+			out += "	Token.t_"+x.name;
+			if(x.type.length > 0)
+				out += "(" + x.arg +":"+x.type+")";
+			out += ";\n";
+		}
+		out += "\n";
+		out += "	Token.t__error(errstr:String);\n";
+		out += "    Token.t__meta (line:Int, char:Int);\n";
+		out += "}\n";
+		
+		//------------------------------------------------------------------------------------------
+		
+		out += File.getContent(epath+"/hlex_ustr");
+		
+		//------------------------------------------------------------------------------------------
+		
+		var file = File.write(args[1], false);
+		file.writeString(out);
+		file.flush();
+		file.close();
+
+		Sys.exit(0);
+		return;
+	}
+}
+
+
+class CharRangeInt {
+	public var from:WChar;
+	public var to  :WChar;
+	public var target:Int;
+	
+	public function new(from:WChar, to:WChar, target:Int) {
+		this.from = from;
+		this.to = to;
+		this.target = target;
+	}
+	
+	public inline function compare(x:CharRangeInt) {
+		if     (from < x.from) return -1;
+		else if(from > x.from) return 1;
+		else if(to < x.to) return -1;
+		else if(to > x.to) return 1;
+		else return 0;
+	}
+}*/

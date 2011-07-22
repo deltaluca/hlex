@@ -1,0 +1,208 @@
+package util;
+
+import scx.FA;
+
+import util.CharSet;
+import scx.UStr;
+
+using scx.UStr.Unicode;
+using scx.FA.FaUtil(CharSet);
+
+private class Integer {
+	public var i:Int;
+	public function new(i:Int) this.i = i
+}
+
+/**
+ * Handwritten parser for a simple subset of the regexp language.
+ * 
+ * grouping via ()
+ * alternation via [] with ranges [a-b] and negation ^ and | (right-associative)
+ * repetition via * and +
+ * conditionality via ?
+ * wildcase with .
+ * 
+ * No error checking is performed. If RegExp is invalid, will probably throw runtime errors!
+ */
+
+class RegExp {
+
+	public static var maxpoint = 0x80;
+	
+	/**
+	 * 
+	 * @param  regexp -> regular expression
+	 * @return -> an NFA representing the regular expression
+	 */
+	public static function nfa(regexp:UStr) {
+		return RegConcat(regexp, new Integer(0));
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	//flag to denote retrieved character has been escaped.
+	static var escaped:Bool;
+	//retrieve next character (possibly escaped) from the string.
+	static function get(str:UStr, pos:Integer) {
+		escaped = false;
+		var c = str[pos.i++];
+		if (c == Unicode.wchar('\\')) {
+			var c2 = str[pos.i++];
+			if     (c2 == Unicode.wchar('n')) return Unicode.wchar('\n');
+			else if(c2 == Unicode.wchar('r')) return Unicode.wchar('\r');
+			else if(c2 == Unicode.wchar('0')) return 0;
+			else if(c2 == Unicode.wchar('t')) return Unicode.wchar('\t');
+			else {
+				escaped = true;
+				return c2;
+			}
+		}
+		else return c;
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	//parse regexp string starting at pos to evaluate a sub-regexp as a concatenation of terms
+	//close argument designates we are parsing a bracketed expression and ) should be consumed.
+	static function RegConcat(regexp:UStr, pos:Integer, ?close:Bool=false) {
+		var ret = FaUtil(CharSet).empty();
+		//This method is perhaps not the most optimal. To handle the postfixed +,*,? operators
+		//I simply keep a copy of the previous state of the regexp, and the last sub-expression
+		//to be parsed so that the NFA can be recomputed once the postfix operator is consumed.
+		var pre = ret.copy();
+		var last = ret.copy();
+		
+		while(pos.i < regexp.length) {
+			var c = get(regexp, pos);
+			
+			//check for special characters
+			if (!escaped) {
+				switch(c) {
+					//word boundary. yay.
+					case Unicode.wchar('£'):
+						pre = ret.copy();
+						ret = ret.concat(last = new CharSet().single(-2).nfa());
+						continue;
+					
+					//end of sub-expression has been reached.
+					case Unicode.wchar(')'):
+						//if close if false, the closing ) should not be consumed <-- decrement pos.
+						if (!close) pos.i--;
+						break;
+						
+					//start of a bracketed sub-expression
+					case Unicode.wchar('('):
+						pre = ret.copy();
+						ret = ret.concat(last = RegConcat(regexp, pos, true));
+						continue;
+						
+					//alternation of character literals and/or ranges
+					case Unicode.wchar('['):
+						pre = ret.copy();
+						ret = ret.concat(last = RegRange(regexp, pos));
+						continue;
+						
+					//expression alternation
+					case Unicode.wchar('|'):
+						pre = ret.copy();
+						ret = ret.bar(last = RegConcat(regexp, pos));
+						continue;
+						
+					//wildcase
+					case Unicode.wchar('.'):
+						pre = ret.copy();
+						ret = ret.concat(last = new CharSet().range(1,9).range(11,12).range(14,maxpoint).nfa());
+						continue;
+					
+					//postfix operators, previously concatenated expression is replaced
+					case Unicode.wchar('*'):
+						//0+ repetitions
+						ret = pre.concat(last = last.star());
+						continue;
+					case Unicode.wchar('+'):
+						//1+ repetitions
+						ret = pre.concat(last = last.plus());
+						continue;
+					case Unicode.wchar('?'):
+						//conditional
+						ret = pre.concat(last = last.maybe());
+						continue;
+				}
+			}
+			
+			//otherwise fall through to the simple case of a literal character.
+			pre = ret.copy();
+			ret = ret.concat(last = new CharSet().single(c).nfa());
+		}
+		return ret;
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	//parse a regexp consisting of the internals of a [...] regexp.
+	static function RegRange(regexp:UStr, pos:Integer) {
+		var ipos = pos.i;
+		
+		//check for negation.
+		var fst = get(regexp, pos);
+		var negate = fst == Unicode.wchar('^') && !escaped;
+		if(!negate) {
+			pos.i = ipos;
+			//special case non-inversion for fast production.
+			
+			var match = new CharSet();
+			var empty = true;
+			while (pos.i < regexp.length) {
+				var c = get(regexp, pos);
+			
+				//end reached.
+				if (c == Unicode.wchar(']') && !escaped) break;
+				//otherwise evaluate if the next character (without escape test) is '-' character.
+				//if so we know this should be followed by another character to specify a range.
+				var c2 = regexp[pos.i];
+				if (c2 == Unicode.wchar('-')) {
+					pos.i++;
+					var c3 = get(regexp, pos);
+					match.range(c,c3);
+					empty = false;
+				}else {
+					match.single(c);
+					empty = false;
+				}
+			}
+			
+			return if (empty) FaUtil(CharSet).empty() else match.nfa();
+		}else {
+			//mapping of characters to be undefined
+			var map = new Array<Bool>();
+			for (i in 1...maxpoint+1) map.push(true);
+		
+			while (pos.i < regexp.length) {
+				var c = get(regexp, pos);
+			
+				//end reached.
+				if (c == Unicode.wchar(']') && !escaped) break;
+				//otherwise evaluate if the next character (without escape test) is '-' character.
+				//if so we know this should be followed by another character to specify a range.
+				var c2 = regexp[pos.i];
+				if (c2 == Unicode.wchar('-')) {
+					pos.i++;
+					var c3 = get(regexp, pos);
+					for (i in c...(c3 + 1))
+						map[i-1] = false;
+				}else map[c-1] = false;
+			}
+			
+			//accumulator for alternation regexp.
+			var match = new CharSet();
+			var empty = true;
+			for (i in 1...maxpoint+1) {
+				if (!map[i - 1]) continue;
+				match.single(i);
+				empty = false;
+			}
+			return if (empty) FaUtil(CharSet).empty() else match.nfa();
+		}
+	}
+	
+}

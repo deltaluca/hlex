@@ -1,0 +1,97 @@
+package;
+import haxe.Int32;
+import haxe.io.Bytes;
+import haxe.io.BytesInput;
+import haxe.io.BytesOutput;
+import haxe.io.Input;
+import haxe.io.Output;
+
+class StdStr {
+	public static inline function xwriteByte(out:Output, x:Int):Output {
+		switch(x) {
+			case 0xff: out.writeByte(0xff); out.writeByte(0);
+			case 0x0a: out.writeByte(0xff); out.writeByte(1);
+			case 0x0d: out.writeByte(0xff); out.writeByte(2);
+			default:
+				out.writeByte(x);
+		}
+		return out;
+	}
+	public static inline function xreadByte(inp:Input):Int {
+		var v = inp.readByte();
+		return if (v == 0xff) {
+			switch(inp.readByte()) {
+				case 0: 0xff;
+				case 1: 0x0a;
+				case 2: 0x0d;
+			}
+		}else v;
+	}
+	
+	
+	public static inline function xwriteBytes(out:Output, x:Bytes):Output {
+		for (i in 0...x.length) xwriteByte(out, x.get(i));
+		return out;
+	}
+	public static inline function xreadBytes(inp:Input, len:Int):BytesInput {
+		var b = new BytesOutput();
+		for (i in 0...len) b.writeByte(xreadByte(inp));
+		return new BytesInput(b.getBytes());
+	}
+	
+	public static inline function xwriteDouble(out:Output, x:Float):Output {
+		var b = new BytesOutput();
+		b.writeDouble(x);
+		return xwriteBytes(out,b.getBytes());
+	}
+	public static inline function xreadDouble(inp:Input):Float {
+		var b = xreadBytes(inp, 8);
+		return b.readDouble();
+	}
+	
+	public static inline function xwriteInt32(out:Output, x:Int32):Output {
+		var b = new BytesOutput();
+		b.writeInt32(x);
+		return xwriteBytes(out,b.getBytes());
+	}
+	public static inline function xreadInt32(inp:Input):Int32 {
+		var b = xreadBytes(inp, 4);
+		return b.readInt32();
+	}
+	
+	public static inline function xwriteInt(out:Output, x:Int):Output {
+		var b = new BytesOutput();
+		b.writeInt31(x);
+		return xwriteBytes(out,b.getBytes());
+	}
+	public static inline function xreadInt(inp:Input):Int {
+		var b0 = xreadByte(inp);
+		var b1 = xreadByte(inp);
+		var b2 = xreadByte(inp);
+		var b3 = xreadByte(inp);
+		return (b0<<24)|(b1<<16)|(b2<<8)|b3;
+	}
+	
+	public static inline function xwriteString(out:Output, x:String):Output {
+		out.writeString(x);
+		out.writeByte(0);
+		return out;
+	}
+	public static inline function xreadString(inp:Input):String {
+		var ret = new StringBuf();
+		while (true) {
+			var b = inp.readByte();
+			if (b == 0) break;
+			ret.addChar(b);
+		}
+		return ret.toString();
+	}
+}
+
+// no 10, no 13
+
+// 0...9,11,12,14...254
+
+// 255 = 255 0
+// 10  = 255 1
+// 13  = 255 2

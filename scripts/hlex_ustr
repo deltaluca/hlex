@@ -1,0 +1,105 @@
+#if neko
+	import haxe.Int32;
+#end
+
+typedef WChar = Int;
+typedef UStr = Array<WChar>;
+class Unicode {
+	
+	public static inline function concat(a:UStr, x:UStr) {
+		for(i in x) a.push(cast x);
+	}
+	
+	public static inline function substr(str:UStr, pos:Int, ?cnt:Int = -1) {
+		if(cnt==-1) cnt = str.length-pos;
+		var ret = new UStr();
+		var max = pos+cnt;
+		if(max>str.length) max = str.length;
+		for(i in pos...max) ret.push(str[i]);
+		return ret;
+	}
+	
+	public static inline function wchar(x:String) return fromString(x)[0]
+	
+	#if neko
+		public static inline function parseInt(x:String):Int32 {
+			var ret = Int32.ofInt(0);
+			for(i in 0...x.length) {
+				ret = Int32.mul(ret,Int32.ofInt(10));
+				ret = Int32.add(ret,Int32.ofInt(Std.parseInt(x.charAt(i))));
+			}
+			return ret;
+		}
+	
+		//neko uses a very weird encoding scheme.
+
+		//this is not guaranteed to be correct! but it works for what i've tested and analysed.
+		//it is limited to unicode points <= 0xffff though. so doesn't handle full unicode.
+		public static inline function string(str:UStr):String {
+			var ret = new StringBuf();
+			for(i in str) {
+				if(i<0x80) ret.addChar(i);
+				else if(i<0xfff) {
+					var c0 = i&0x3f;
+					i >>>= 6;
+					var c1 = i&0x3f;
+					
+					ret.addChar(0xc0 | c1);
+					ret.addChar(0x80 | c0);
+				}else {
+					var c0 = i&0x3f;
+					i >>>= 6;
+					var c1 = i&0x3f;
+					i >>>= 6;
+					var c2 = i&0x1f;
+					
+					ret.addChar(0xe0 | c2);
+					ret.addChar(0x80 | c1);
+					ret.addChar(0x80 | c0);
+				}
+			}
+			return ret.toString();
+		}
+		public static inline function fromString(str:String):UStr {
+			var ret = new UStr();
+			var pos = 0;
+			while(pos<str.length) {
+				var c0 = str.charCodeAt(pos++);
+				if((c0&0x80)==0) ret.push(c0);
+				else if((c0&0xc0)==0x80) {
+					var acc = c0&0x3f;
+					acc |= ((c0=str.charCodeAt(pos++))&0x3f)<<6;
+					if((c0&0xc0)==0x80)
+						acc |= ((c0=str.charCodeAt(pos++))&0x1f)<<12;
+					ret.push(acc);
+				}else if((c0&0xe0)==0xe0) {
+					var acc = (c0&0x1f)<<12;
+					acc |= ((str.charCodeAt(pos++))&0x3f)<<6;
+					acc |= (str.charCodeAt(pos++))&0x3f;
+					ret.push(acc);
+				}else if((c0&0xe0)==0xc0) {
+					var acc = (c0&0x3f)<<6;
+					acc |= (str.charCodeAt(pos++))&0x3f;
+					ret.push(acc);
+				}else break;
+			}
+			return ret;
+		}
+	#elseif flash
+		
+		public static inline function parseInt(x:String) return Std.parseInt(x)
+	
+		//flash uses nice simple wrapped unicode :)
+		public static inline function fromString(str:String):UStr {
+			var ret = new UStr();
+			for(i in 0...str.length) ret.push(str.charCodeAt(i));
+			return ret;
+		}
+		public static inline function string(str:UStr):String {
+			var ret = new StringBuf();
+			for(i in str) ret.addChar(i);
+			return ret.toString();
+		}
+	
+	#end
+}

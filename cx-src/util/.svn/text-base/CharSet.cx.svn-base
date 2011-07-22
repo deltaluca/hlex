@@ -1,0 +1,283 @@
+package util;
+
+import util.UStr;
+import util.Set;
+import util.LList;
+import util.RegExp;
+
+///=================================================================================================
+
+/**
+
+	Implementation of Set(WChar) using a minimal ordered list of character ranges.
+	
+	Speeds up compilation of the lexer vs Set(WChar) by about 6x ! So was well worth the effort!
+
+**/
+
+class CharSet {
+	//linked list of character ranges.
+	//
+	//guaranteed to be in order, and minimal. Aka the ranges (0-10)(11-20) will never exist, as
+	//they could, and would be combined to give (0-20)
+	public var ranges:LList(CharRange);
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public inline function toString() {
+		var ret = "";
+		LLIter(i, ranges, {
+			ret += "[";
+			if(i.to==i.from) ret += i.from;
+			else ret += i.from+"-"+i.to;
+			ret += "]";
+		});
+		return ret;
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public function new()
+		ranges = new LList(CharRange)()
+		
+	//----------------------------------------------------------------------------------------------
+	
+	static public var max = 16;
+	
+	static public function overlap(list:Iterable<CharSet>) {
+		var sets = Lambda.array(list);
+		var unioned = new CharSet();
+		for(N in sets) unioned.merge(N);
+		
+		if(sets.length>max) {
+			//give up! would take WAY too long.
+			
+			var ret = new Array<CharSet>();
+			LLIter(r, unioned.ranges,
+				for(x in r.from...r.to+1) ret.push(new CharSet().single(x))
+			);
+			return ret;
+		}else {
+			//should be manageable!
+			
+			var union = new Array<WChar>();
+			LLIter(r, unioned.ranges,
+				for(x in r.from...r.to+1) union.push(x)
+			);
+
+			var map = new IntMap(Array<Bool>)();
+			for(cur in union) {
+				var mapping = new Array<Bool>();
+				for(i in 0...sets.length) mapping.push(false);
+				map.insert(cur, mapping);
+			}
+			
+			for(i in 0...sets.length) {
+				LLIter(cur, sets[i].ranges,
+					for(xs in cur.from...cur.to+1)
+						map.get(xs)[i] = true
+				);
+			}
+
+			var ret = new Array<CharSet>();
+			for(i in 1...(1<<sets.length)) {
+				var set = null;
+				var pre = -1; var start = -1; var pren = null;
+				for(n in union) {
+					var valid = true;
+					var mask = 1;
+					for(j in 0...sets.length) {
+						if(map.get(n)[j] == ((i&mask)==0)) {
+							valid = false;
+							break;
+						}
+						mask <<= 1;
+					}
+					if(valid) {
+						if(set==null) set = new CharSet();
+						if(n-1 != pre) {
+							if(start!=-1)
+								pren = set.ranges.insert(pren, new CharRange(start,pre));
+							start = n;
+						}
+						pre = n;
+						//set.insert(new CharRange(n,n));
+						//^^ replaced with the more verbose, but far more effecient building of CharSet
+					}
+				}
+				if(start!=-1) set.ranges.insert(pren, new CharRange(start,pre));
+				if(set!=null) ret.push(set);
+			}
+			return ret;
+		}
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public inline function insert(x:CharRange) {
+		if(ranges.size==0) { ranges.unshift(x); }
+		else {
+			var pre = null;
+			var n = ranges.head;
+			while(true) {
+				//x is fully disjoint and after the entire charset
+				if(n==null) { ranges.insert(pre,x); break; }
+				
+				var r = n.elt;
+				//x is fully disjoint from current, proceed to next.
+				if(x.from > r.to+1) { pre = n; n = n.next; continue; }
+				
+				//x is fully disjoint from previous and current, insert it
+				if(x.to < r.from-1) {
+					ranges.insert(pre,x);
+					break;
+				}
+				
+				//x is fully contained in current
+				if(x.from >= r.from && x.to <= r.to) break;
+				
+				//x is fully disjoint from previous, and <= current, just resize
+				if(x.to <= r.to) {
+					r.from = x.from;
+					break;
+				}
+				
+				//at this point we KNOW that x inteferes with current.
+				//either it intersects it fully, or it 'just' touches and needs combining anyways.
+				r.to = x.to;
+				if(x.from<r.from) r.from = x.from;
+				x = r;
+				//remove elements/adjust x as needed to satisfy range properties.
+				pre = n; n = n.next;
+				while(n!=null) {
+					var r = n.elt;
+					
+					if(r.from<=x.to+1) {
+						//adjust x if necessary.
+						if(r.to > x.to) x.to = r.to;
+						ranges.remove(pre); n = pre.next;
+						continue;
+					}
+					
+					pre = n;
+					n = n.next;
+				}
+				
+				break;
+			}
+		}
+		return this;
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public inline function has(x:WChar) {
+		var ret = false;
+		LLIter(R,ranges,{
+			if(x < R.from) llbreak;
+			if(x <= R.to || R.to == RegExp.maxpoint) { ret = true; llbreak; }
+		});
+		return ret;
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public inline function copy() {
+		var ret = new CharSet();
+		ret.ranges = ranges.copy();
+		return ret;
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public inline function intersects(x:CharSet) {
+		if(ranges.size==0 || x.ranges.size==0) return false;
+		else {
+			var ret = false;
+			
+			var n0 = ranges.head;
+			var n1 = x.ranges.head;
+			while(n0 != null && n1 != null) {
+				var r0 = n0.elt; var r1 = n1.elt;
+				if(r0.from < r1.from) {
+					if(r0.to >= r1.to) { ret = true; break; }
+					else n0 = n0.next;
+				}else {
+					if(r1.to >= r0.from) { ret = true; break; }
+					else n1 = n1.next;
+				}
+			}
+			
+			return ret;
+		}
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	//lexicographical ordering.
+	//
+	//The main motiviation for making the range list minimal as it simplifies this procedure.
+	public inline function compare(x:CharSet) {
+		if(ranges.size==0 && x.ranges.size==0) return 0;
+		else if(ranges.size==0 && x.ranges.size!=0) return -1;
+		else if(ranges.size!=0 && x.ranges.size==0) return 1;
+		else {
+			var ret = 0;
+			var n0 = ranges.head;
+			var n1 = x.ranges.head;
+			while(true) {
+				var r0 = n0.elt; var r1 = n1.elt;
+				if     (r0.from < r1.from) { ret = -1; break; }
+				else if(r1.from < r0.from) { ret =  1; break; }
+				else if(r0.to < r1.to) {
+					//if list 0 has more to come, then by the fact the ranges are minimal
+					//the next element i charset 0 must be greater than that of charset 1
+					ret = if(n0.next==null) -1 else 1;
+					break;
+				}else if(r1.to < r0.to) {
+					//same argument as above reversed.
+					ret = if(n1.next==null) 1 else -1;
+					break;
+				}else {
+					//at this point know current ranges are equal.
+					n0 = n0.next; n1 = n1.next;
+					
+					if     (n0==null && n1==null) break;
+					else if(n0==null && n1!=null) { ret = -1; break; }
+					else if(n1==null && n0!=null) { ret =  1; break; }
+				}
+			}
+			return ret;
+		}
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public inline function merge(x:CharSet) {
+		LLIter(r, x.ranges, insert(r.copy()));
+	}
+	
+	//----------------------------------------------------------------------------------------------
+	
+	public inline function range(a:WChar, b:WChar) {
+		insert(new CharRange(a,b));
+		return this;
+	}
+	public inline function single(a:WChar) {
+		insert(new CharRange(a,a));
+		return this;
+	}
+}
+
+///=================================================================================================
+
+class CharRange {
+	public var from:WChar;
+	public var to:WChar;
+	
+	public function new(a:WChar, b:WChar) {
+		from = a;
+		to = b;
+	}
+	public inline function copy() return new CharRange(from,to)
+}

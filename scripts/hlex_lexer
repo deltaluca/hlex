@@ -1,0 +1,115 @@
+var input = Unicode.fromString(input_string);
+var ret = new Array<Token>();
+var valid = false;
+var valcnt = 0;
+var attr = 0;
+var errstate = false;
+var errstr:UStr = null;
+
+var state = entry_state;
+var pos = 0;
+var ipos = pos;
+
+while(pos < input.length) {
+	//evaluate next state to progress to.
+	var trans = transitions[state];
+	var char = input[pos];
+
+	state = if(char>=trans.length) trans[trans.length-1];
+	else trans[char];
+	
+	if(state==-1) {
+		//ERROR?
+		if(!valid) {
+			if(!errstate) {
+			    if(errstr==null)
+				    errstr = [input[ipos]];
+				else
+				    errstr.push(input[ipos]);
+			}
+			else errstr.push(char);
+			pos = ipos+1;
+		}else {
+			if(errstr!=null) {
+				ret.push(Token.get(Token.t_error,Unicode.string(errstr)));
+				errstr = null;
+			}
+			var tok = tokenof(attr,Unicode.substr(input,ipos,valcnt));
+			//var cb = tokens[attr];
+			//if(cb!=null)
+			//	ret.push(cb(Unicode.string(Unicode.substr(input,ipos,valcnt))));
+			if(tok!=null) ret.push(tok);
+			pos = ipos+valcnt;
+		}
+		errstate = !valid;
+
+		//reset state
+		state = entry_state;
+		valid = false;
+		ipos = pos;
+	}else {
+	    pos++;
+	    errstate = false;
+	}
+
+	//accepting state reached? persevere anyways!
+	if(accepting[state]) {
+		valid = true;
+		//if(identb) pos--;
+		valcnt = pos-ipos;
+		attr = state;
+	}else if(pos==input.length) {
+	    //ERROR?
+		if(!valid) {
+			if(!errstate) {
+			    if(errstr==null)
+				    errstr = [input[ipos]];
+				else
+				    errstr.push(input[ipos]);
+			}
+			else errstr.push(input[pos]);
+			pos = ipos+1;
+		}else {
+			if(errstr!=null) {
+				ret.push(Token.get(Token.t_error,Unicode.string(errstr)));
+				errstr = null;
+			}
+			var tok = tokenof(attr,Unicode.substr(input,ipos,valcnt));
+			//var cb = tokens[attr];
+			//if(cb!=null)
+			//	ret.push(cb(Unicode.string(Unicode.substr(input,ipos,valcnt))));
+			if(tok!=null) ret.push(tok);
+			pos = ipos+valcnt;
+		}
+		errstate = !valid;
+
+		//reset state
+		state = entry_state;
+		valid = false;
+		ipos = pos;
+	}
+}
+
+if(ipos<input.length) {
+	//ERROR?
+	if(!valid) {
+	    ret.push(Token.get(Token.t_error,Unicode.string(Unicode.substr(input,ipos))));
+	} else {
+		if(errstr!=null) {
+			ret.push(Token.get(Token.t_error,Unicode.string(errstr)));
+			errstr = null;
+		}
+		var tok = tokenof(attr,Unicode.substr(input,ipos,valcnt));
+        //var cb = tokens[attr];
+        //if(cb!=null)
+        //	ret.push(cb(Unicode.string(Unicode.substr(input,ipos,valcnt))));
+        if(tok!=null) ret.push(tok);
+		pos = ipos+valcnt;
+	}
+}
+if(errstr!=null) {
+	ret.push(Token.get(Token.t_error,Unicode.string(errstr)));
+	errstr = null;
+}
+
+return ret;

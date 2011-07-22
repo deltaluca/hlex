@@ -1,0 +1,38 @@
+%token IDENT INT ATTR LPAR RPAR COLON COLEQ NULL
+%token REGEXP HAXE
+%token ERR
+
+%{
+	enum HLX {
+		hlx_decl(token:String, prec:Int, regexp:String);
+		hlx_ignore(token:String, prec:Int, regexp:String);
+		hlx_attr(token:String, attr:String);
+		hlx_extra(haxe:String);
+		hlx_err(name:String);
+	}
+	
+	class Error {
+		public static var err:Bool=false;
+		public static var errors = new Array<String>();
+	}
+%}
+
+%entry hlx
+
+%hlx : state			%{ if(%0==null) [] else [%0]; %}
+	 | state hlx		%{ if(%0==null) %1 else [%0].concat(%1); %}
+	 ;
+	
+%state	: INT COLON IDENT COLEQ REGEXP		%{ Error.err = false; hlx_decl(%2.data,%0.data,%4.data); %}
+		| ATTR LPAR IDENT RPAR COLEQ HAXE	%{ Error.err = false; hlx_attr(%2.data,%5.data); %}
+		| HAXE 								%{ Error.err = false; hlx_extra(%0.data); %}
+		| NULL INT COLON IDENT COLEQ REGEXP %{ Error.err = false; hlx_ignore(%3.data,%1.data,%5.data); %}
+		
+		| ERR COLON IDENT %{ Error.err = false; hlx_err(%2.data); %}
+		
+		| ERROR
+		%{
+			if(!Error.err) { Error.errors.push("Unrecognised statement"); Error.err = true; }
+			null;
+		%}
+		;

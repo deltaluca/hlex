@@ -1,0 +1,135 @@
+int Lexer::run() {
+	char* file = NULL;
+	int psize = 0;
+	while(true) {
+		std::string filepath = files->pop();
+		if(filepath.compare("hlex_eos")==0) break;
+		else lexfile(filepath,&file,psize);
+	}
+	tokens->push(ptr<TOKEN>(new TOKEN(-3)));
+	return 0;
+}
+
+void Lexer::lexfile(const std::string& addr, char** file, int& psize) {
+	tokens->push(ptr<TOKEN>(new TOKEN(-4,Dynamic(addr))));
+	
+	FILE* fp = fopen(addr.c_str(),"rb");
+	if(fp==NULL) {
+		tokens->push(ptr<TOKEN>(new TOKEN(-2)));
+		return;
+	}
+	
+	fseek(fp,0,SEEK_END);
+	int size = ftell(fp);
+	fseek(fp,0,SEEK_SET);
+	
+	if(size>psize) {
+		*file = (char*)realloc(*file,size);
+		psize = size;
+	}
+	size = fread(*file,1,size,fp);
+	fclose(fp);
+	char* end = *file+size;
+	
+	std::string errstr;
+	std::string valstr;
+	
+	bool valid = false;
+	const Transition* attr;
+	int valcnt = 0;
+	char* ipos = *file;
+	char* pos = ipos;
+	
+	bool errstate = false;
+	short state = entry_state;
+	while(pos<end) {
+		unsigned char c = *pos;
+		int offset = c>maxpoint ? maxpoint : (int)c;
+		const Transition* to = transitions + (state*(maxpoint+1)+offset);
+		state = to->state;
+		
+		if(state==-1) {
+			if(!valid) {
+				if(!errstate) { if(((unsigned char)*ipos)>31) errstr.push_back(*ipos); }
+				else if(c>31) errstr.push_back(c);
+				pos = ipos+1;
+			}else {
+				err_token(tokens,errstr);
+				
+				if(attr->flags&2) {
+					if(attr->flags&4) {
+						pos = ipos;
+						valstr.clear();
+						while(valcnt-->0) valstr.push_back(*(pos++));
+						tokens->push((*(attr->token))(valstr));
+					}else {
+						tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
+						pos = ipos+valcnt;
+					}
+				}else pos = ipos+valcnt;
+			}
+			errstate = !valid;
+			
+			//reset state
+			state = entry_state;
+			valid = false;
+			ipos = pos;
+		}else {
+			pos++;
+			errstate = false;
+		}
+		
+		if(to->flags) {
+			valid = true;
+			valcnt = pos-ipos;
+			attr = to;
+		}else if(pos==end) {
+			if(!valid) {
+				if(!errstate) { if(((unsigned char)*ipos)>31) errstr.push_back(*ipos); }
+				pos = ipos+1;
+			}else {
+				err_token(tokens,errstr);
+				
+				if(attr->flags&2) {
+					if(attr->flags&4) {
+						pos = ipos;
+						valstr.clear();
+						while(valcnt-->0) valstr.push_back(*(pos++));
+						tokens->push((*(attr->token))(valstr));
+					}else {
+						tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
+						pos = ipos+valcnt;
+					}
+				}else pos = ipos+valcnt;
+			}
+			errstate = !valid;
+			
+			//reset state
+			state = entry_state;
+			valid = false;
+			ipos = pos;
+		}
+	}
+	
+	if(ipos<end) {
+		if(!valid) {
+			if(!errstate) { if(((unsigned char)*ipos)>31) errstr.push_back(*ipos); }
+			pos = ipos+1;
+		}else {
+			err_token(tokens,errstr);
+			
+			if(attr->flags&2) {
+				if(attr->flags&4) {
+					pos = ipos;
+					valstr.clear();
+					while(valcnt-->0) valstr.push_back(*(pos++));
+					tokens->push((*(attr->token))(valstr));
+				}else
+					tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
+			}
+		}
+	}
+	
+	err_token(tokens,errstr);
+	tokens->push(ptr<TOKEN>(new TOKEN(-2)));
+}

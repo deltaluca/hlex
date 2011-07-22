@@ -1,0 +1,23 @@
+//hlex
+ 
+ 1 : ident := ~/[a-zA-Z_][a-zA-Z_0-9]*/~
+ 1 : int   := ~/[+\-]?[0-9]+/~
+ 2 : lpar  := ~/\(/~
+ 2 : rpar  := ~/\)/~
+ 2 : colon := ~/:/~
+ 2 : coleq := ~/:=/~
+ 2 : NULLx  := ~/NULL/~
+ 2 : attrx  := ~/attr/~
+ 
+ 0 : regexp := ~/~/([^/]|/+[^~/])*/+~/~
+ 2 : haxe   := ~/%\{([^%]|%+[^%}])*%+\}/~
+ 
+2 : err := ~/error/~
+ 
+NULL 2 : comment := ~/(/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/)|(//.*)/~
+NULL 2 : ws      := ~/[ \t\n\r]/~
+ 
+ attr(ident)  := %{ %; %}
+ attr(int)    := %{ Std.parseInt(%); %}
+ attr(regexp) := %{ %.substr(2,%.length-4); %}
+ attr(haxe)   := %{ %.substr(2,%.length-4); %}
