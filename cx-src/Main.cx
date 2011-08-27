@@ -208,7 +208,7 @@ class Main {
 			out += "	ref<tsDeque<ptr<TOKEN> > > tokens;\n";
 			out += "	ref<tsDeque<std::string> > files;\n";
 			
-			out += "	int run();\n";
+			out += "	size_t run();\n";
 			out += "	void lexfile(const std::string&, char**, int&);\n";
 			out += "public:\n";
 			out += "	Lexer();\n";

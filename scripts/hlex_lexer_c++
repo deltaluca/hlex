@@ -1,4 +1,4 @@
-int Lexer::run() {
+size_t Lexer::run() {
 	char* file = NULL;
 	int psize = 0;
 	while(true) {
