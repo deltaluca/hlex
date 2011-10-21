@@ -45,6 +45,8 @@ class Main {
 		    Lib.println("\t\tGenerates a c++ lexer (output_name.hpp output_name.cpp) for use IN c++ (not haXe) requires utility modules from caxe to define classes used. Like -cpp flag is to be used in a threaded environment passing streams of input files and receiving back a stream of tokens");
             Lib.println("");
 			Lib.println("\tFor syntax of hxl view hxl_readme");
+			Lib.println("");
+			Lib.println("\t-haxe-gen output.hx [-package package_name] for new style haXe lexer using custom tokens which must be defined");
 			
 		    Sys.exit(0);
 		    return;
@@ -57,11 +59,13 @@ class Main {
 		var packname = "";
 		var haxemode = true;
 		var realcpp = false;
+		var newhaxe = false;
 		
 		var flag = args[1];
 		if(flag=="-haxe") haxemode = true;
 		else if(flag=="-cpp") haxemode = false;
 		else if(flag=="-c++") { haxemode = false; realcpp = true; }
+		else if(flag=="-haxe-gen") newhaxe = true;
 		else { Lib.println("Unrecognised flag "+flag); Sys.exit(1); }
 		
 		var iarg = haxemode ? 2 : 3;
@@ -118,6 +122,8 @@ class Main {
 		var nfrules = new Array<NFA(CharSet)>();
 		var tokenid = 1;
 		var error_node:{name:String,id:Int} = null;
+
+		var error_attr = null;
 		
 		for(S in hlx) {
 			switch(S) {
@@ -147,12 +153,13 @@ class Main {
 					
 				case hlx_attr(n, attr):
 					var rule = rules.get(n);
-					if(rule==null) {
+					if(rule==null && n!="error_tok") {
 						Lib.println("ERROR: Rule "+n+" does not exist in attribute definition!");
 						errs = true;
 					}
-					
-					rule.attr = attr;
+					if(rule!=null)	
+						rule.attr = attr;
+					else if(n=="error_tok") error_attr = attr;
 					
 				case hlx_err(n):
 					
@@ -696,7 +703,7 @@ class Main {
 			file.writeString(File.getContent(epath+"/scripts/hlex_utils"));
 			file.flush();
 			file.close();
-		}else {
+		}else if(!newhaxe) {
 			
 			out += "package "+packname+";\n";
 			out += "\n";
@@ -834,6 +841,112 @@ class Main {
 			
 			out += File.getContent(epath+"/scripts/hlex_ustr");
 			
+			var file = File.write(args[2], false);
+			file.writeString(out);
+			file.flush();
+			file.close();
+		}else {
+			out += "package "+packname+";\n";
+			out += "\n";
+			out += extra;
+			out += "\n";
+			out += "class HLex {\n";
+			
+			out += "		static inline var entry_state:Int = "+dfa.id+";\n";
+			out += "\n";
+	
+			var states = FaUtil(CharSet).split_states(dfa).all;
+			out += "        static var transitions = ";
+			out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
+				var outs = [];
+				for(i in 0...RegExp.maxpoint+1) outs.push(-1);
+				
+				for(out in state.out) {
+					var x:CharSet = out.match;
+					LLIter(R, x.ranges, {
+						for(i in R.from...R.to+1)
+							outs[i] = out.to.id;
+					});
+				}
+				return Textual.array_string(cast outs);
+			});
+			out += ";\n";
+
+			//--------------------------------------------------------------------------------------
+			
+			out += "\n";
+			out += "        static var accepting = ";
+			out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
+				return if(state.accepting) "true" else "false";
+			});
+			out += ";\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			out += "\n";
+			out += "	public static function lexify(input_string:String):Array<Token> {\n";
+			
+			//--------------------------------------------------------------------------------------
+			
+			var epath = neko.Sys.getEnv("HLEX_ROOT");
+			if(epath==null || epath.length==0) {
+			    Lib.println("WARNING: HLEX_ROOT NOT DEFINED");
+			    epath = "";
+			};
+			
+			out += File.getContent(epath+"/scripts/hlex_lexer_new");
+
+			out += "}\n";
+
+			out += "	static inline function errtok(hxl_match:String) {\n";
+			if(error_attr==null) out += "		return null;\n";
+			else {
+				out += "return ({";
+					var esc = false;
+					for(i in 0...error_attr.length) {
+						var c = error_attr.charCodeAt(i);
+						if(c==Unicode.wchar('\\') && !esc) {
+							esc = true; out += '\\';
+						}else if(esc) {
+							esc = false; out += error_attr.charAt(i);
+						}else if(c == Unicode.wchar('%')) {
+							out += " hxl_match ";
+						}else out += error_attr.charAt(i);
+					}
+				out += "});\n";
+			}
+			out += "	}\n";
+
+			out += "	static inline function tokenof(id:Int, hxl_match:String) {\n";
+			out += "		switch(id) {\n";
+			out += "			default: return null;\n";
+			for(x in states) {
+				if(!x.accepting || x.attr==null) continue;
+				var rule = x.attr.func("");
+				if(rule.ign) continue;
+				out += "            case "+x.id+":\n";
+				out += "				return ";
+				if(rule.attr != null) {
+					out += "({";
+					var esc = false;
+					for(i in 0...rule.attr.length) {
+						var c = rule.attr.charCodeAt(i);
+						if(c==Unicode.wchar('\\') && !esc) {
+							esc = true; out += '\\';
+						}else if(esc) {
+							esc = false; out += rule.attr.charAt(i);
+						}else if(c == Unicode.wchar('%')) {
+							out += " hxl_match ";
+						}else out += rule.attr.charAt(i);
+					}
+					out += "})";
+				}else out += "null";
+				out += ";\n";
+			}
+			out += "        }\n";
+			out += "	}\n";
+			out += "}\n";
+
 			var file = File.write(args[2], false);
 			file.writeString(out);
 			file.flush();

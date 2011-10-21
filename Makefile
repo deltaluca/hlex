@@ -23,7 +23,7 @@ pre_process:
 	@echo "---------------"
 	rm -rvf src
 	mkdir src
-	caxe cx-src $(SCX) -o src -tc 2 --times
+	caxe cx-src $(SCX) -o src -tc 1 --times
 
 clean:
 	@echo "---------------"
