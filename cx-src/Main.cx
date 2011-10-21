@@ -855,7 +855,7 @@ class Main {
 			out += "		static inline var entry_state:Int = "+dfa.id+";\n";
 			out += "\n";
 	
-			var states = FaUtil(CharSet).split_states(dfa).all;
+/*			var states = FaUtil(CharSet).split_states(dfa).all;
 			out += "        static var transitions = ";
 			out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
 				var outs = [];
@@ -870,7 +870,25 @@ class Main {
 				}
 				return Textual.array_string(cast outs);
 			});
-			out += ";\n";
+			out += ";\n";*/
+
+			out += "	static var transitions:Array<Array<Array<Int>>> = null;\n";
+			out += "	public static function init() {\n";
+			out += "		if(transitions!=null) return;\n";
+			out += "		transitions = [];\n";
+			var states = FaUtil(CharSet).split_states(dfa).all;
+			for(state in states) {
+				if(state.out.length==0) { out += "transitions.push(null);\n"; continue; }
+				out += "var cur = [];\n";
+				for(ssout in state.out) {
+					var x:CharSet = ssout.match;
+					LLIter(R, x.ranges, {
+						out += "cur.push(["+(R.from)+","+(R.to)+","+(ssout.to.id)+"]);\n";	
+					});
+				}
+				out += "transitions.push(cur);\n";
+			}
+			out += "}\n";
 
 			//--------------------------------------------------------------------------------------
 			
@@ -885,7 +903,7 @@ class Main {
 			
 			out += "\n";
 			out += "	public static function lexify(input:String):Array<Token> {\n";
-			
+			out += "		init();\n";	
 			//--------------------------------------------------------------------------------------
 			
 			var epath = neko.Sys.getEnv("HLEX_ROOT");
@@ -917,7 +935,7 @@ class Main {
 			}
 			out += "	}\n";
 
-			out += "	static inline function tokenof(id:Int, hxl_match:String) {\n";
+			out += "	static function tokenof(id:Int, hxl_match:String) {\n";
 			out += "		switch(id) {\n";
 			out += "			default: return null;\n";
 			for(x in states) {
