@@ -9,6 +9,7 @@
 		hlx_attr(token:String, attr:String);
 		hlx_extra(haxe:String);
 		hlx_err(name:String);
+		hlx_both(prec:Int, regexp:String, attr:String);
 	}
 	
 	class Error {
@@ -29,6 +30,8 @@
 		| NULL INT COLON IDENT COLEQ REGEXP %{ Error.err = false; hlx_ignore(%3.data,%1.data,%5.data); %}
 		
 		| ERR COLON IDENT %{ Error.err = false; hlx_err(%2.data); %}
+
+		| INT COLON REGEXP COLEQ HAXE %{ Error.err = false; hlx_both(%0.data,%2.data,%4.data); %}
 		
 		| ERROR
 		%{

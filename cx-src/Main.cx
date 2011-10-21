@@ -125,6 +125,8 @@ class Main {
 
 		var error_attr = null;
 		
+		var unique:String = "UNIQUE_";
+		var unocnt:Int = 0;
 		for(S in hlx) {
 			switch(S) {
 				case hlx_ignore(n,p,reg):
@@ -169,6 +171,15 @@ class Main {
 					}
 					
 					error_node = { name : n, id : tokenid++ };
+
+				case hlx_both(p, reg,attr):
+					var n = unique + (unocnt++);	
+					var nfa = RegExp.nfa(Unicode.fromString(reg));
+					var rule = { name : n, id : tokenid++, nfa : nfa, attr : attr, ign : false };
+					FaUtil(CharSet).attribute(nfa, p, function (_) return rule);
+
+					nfrules.push(nfa);
+					rules.insert(n,rule);
 					
 				case hlx_extra(haxe):
 					extra += haxe;
