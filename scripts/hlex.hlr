@@ -32,6 +32,7 @@
 		| ERR COLON IDENT %{ Error.err = false; hlx_err(%2.data); %}
 
 		| INT COLON REGEXP COLEQ HAXE %{ Error.err = false; hlx_both(%0.data,%2.data,%4.data); %}
+		| REGEXP COLEQ HAXE %{ Error.err = false; hlx_both(0,%0.data,%2.data); %}
 		
 		| ERROR
 		%{
