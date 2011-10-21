@@ -68,8 +68,8 @@ class Main {
 		else if(flag=="-haxe-gen") newhaxe = true;
 		else { Lib.println("Unrecognised flag "+flag); Sys.exit(1); }
 		
-		var iarg = haxemode ? 2 : 3;
-		while(iarg+1 < args.length) {
+		var iarg = haxemode ? 3 : 3;
+		while(iarg < args.length) {
 			var flag = args[iarg++];
 			if(flag=="-package" && haxemode) packname = args[iarg++];
 			else Lib.println("Unrecognised flag "+flag);
@@ -884,7 +884,7 @@ class Main {
 			//--------------------------------------------------------------------------------------
 			
 			out += "\n";
-			out += "	public static function lexify(input_string:String):Array<Token> {\n";
+			out += "	public static function lexify(input:String):Array<Token> {\n";
 			
 			//--------------------------------------------------------------------------------------
 			
