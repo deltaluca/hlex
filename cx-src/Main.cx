@@ -5,9 +5,6 @@ import scx.UStr;
 import scx.FA;
 import scx.LList;
 
-//using UStr.Unicode;
-//using FA.FaUtil(CharSet);
-
 import util.CharSet;
 import util.RegExp;
 
@@ -44,48 +41,63 @@ class Main {
 		}
 		
 		//------------------------------------------------------------------------------------------
-		
-		Lib.println(" >> Initialising");
-		
-		var packname = "";
-		var haxemode = true;
-		
-		var flag = args[1];
-		if(flag=="-haxe") haxemode = true;
-		else if(flag=="-c++") haxemode = false; 
-		else { Lib.println("Unrecognised flag "+flag); Sys.exit(1); }
+
+		var epath = neko.Sys.getEnv("HLEX_ROOT");
+		if(epath==null || epath.length==0) {
+		    Lib.println("WARNING: HLEX_ROOT NOT DEFINED");
+		    epath = "";
+		};
 	
-		var tocktype = "Token";
-		
-		var iarg = haxemode ? 3 : 3;
+		var packname = null;
+		var haxemode:Null<Bool> = null;
+		var tocktype = null;
+		var outf = null;
+
+		var iarg = 1;
 		while(iarg < args.length) {
 			var flag = args[iarg++];
-			if(flag=="-package" && haxemode) packname = args[iarg++];
-			else if(flag=="-token") tocktype = args[iarg++];
-			else Lib.println("Unrecognised flag "+flag);
+			if(flag=="-haxe") {
+				if(haxemode!=null) { Lib.println("Backend already set as "+(haxemode?"haxe":"c++")); Sys.exit(1); }
+				haxemode = true;
+				if(iarg == args.length) { Lib.println("Expected output file after -haxe"); Sys.exit(1); }
+				outf = args[iarg++];
+			}else if(flag=="-c++") {
+				if(haxemode!=null) { Lib.println("Backend already set as "+(haxemode?"haxe":"c++")); Sys.exit(1); }
+				haxemode = false;
+				if(iarg == args.length) { Lib.println("Expected output name after -c++"); Sys.exit(1); }
+				outf = args[iarg++];
+				if(packname!=null) { Lib.println("-package option cannot be used with -c++"); Sys.exit(1); }
+			}else if(flag=="-package") {
+				if(haxemode!=null && !haxemode) { Lib.println("-package option cannot be used with -c++"); Sys.exit(1); }
+				if(iarg == args.length) { Lib.println("Expected package name after -package"); Sys.exit(1); }
+				packname = args[iarg++];
+			}else if(flag=="-token") {
+				if(iarg == args.length) { Lib.println("Expected typename after -token"); Sys.exit(1); }
+				tocktype = args[iarg++];
+			}else {
+				Lib.println("Unrecognised flag "+flag);
+				Sys.exit(1);
+			}
 		}
-	
+
+		if(tocktype==null) { Lib.println("-token flag is required"); Sys.exit(1); }
+
 		//------------------------------------------------------------------------------------------
 		
-		Lib.println(" >> Lexing descriptor");
+		Lib.println(" >> Processing descriptor");
 		
 		var hxl = File.getContent(args[0]);
 		var tokens = HLex.lexify(hxl);
-
-		Lib.println(" >> Parsing descriptor");
-		var hlx:Array<HLX> = HLlr.parse(tokens);
+		var hlx = HLlr.parse(tokens);
 		
 		//------------------------------------------------------------------------------------------
 		
 		Lib.println(" >> Building NFA");
 		
 		var extra = "";
-		var errs = false;
 		var rules = new StringMap(Rule)();
 		var nfrules = new Array<NFA(CharSet)>();
 		var tokenid = 1;
-		var error_node:{name:String,id:Int} = null;
-
 		var error_attr = null;
 		
 		var unique:String = "UNIQUE_";
@@ -118,8 +130,6 @@ class Main {
 					error_attr = haxe;	
 			}
 		}
-		
-		if(errs) Sys.exit(1);
 		
 		//------------------------------------------------------------------------------------------
 		
@@ -166,13 +176,13 @@ class Main {
 			out += "	void init(tsDeque<std::string>&, tsDeque<ptr<TOKEN> >&);\n";
 			out += "};\n";
 			
-			var file = File.write(args[2]+".hpp", false);
+			var file = File.write(outf+".hpp", false);
 			file.writeString(out);
 			file.flush();
 			file.close();
 			
 			var out = "";
-			out += "#include <"+args[2]+".hpp>\n";
+			out += "#include <"+outf+".hpp>\n";
 			out += "#include <cstdio>\n";
 			out += "#include <string>\n";
 			out += "#include <cstring>\n";
@@ -251,10 +261,10 @@ class Main {
 			
 			out += "void err_token(ref<tsDeque<ptr<TOKEN> > >& tokens, std::string& errstr) {\n";
 			out += "	if(errstr.length()!=0) {\n";
-			if(error_node==null)
+//			if(error_node==null)
 			out += "		tokens->push(ptr<TOKEN>(new TOKEN(-1,Dynamic(errstr))));\n";
-			else
-			out += "		tokens->push(ptr<TOKEN>(new TOKEN("+(error_node.id-1)+",Dynamic(errstr))));\n";
+//			else
+//			out += "		tokens->push(ptr<TOKEN>(new TOKEN("+(error_node.id-1)+",Dynamic(errstr))));\n";
 			out += "		errstr.clear();\n";
 			out += "	}\n";
 			out += "}\n";
@@ -314,28 +324,17 @@ class Main {
 			out += "static const short entry_state = "+dfa.id+";\n";
 			out += "static const int maxpoint = "+RegExp.maxpoint+";\n";
 			
-			var epath = neko.Sys.getEnv("HLEX_ROOT");
-			if(epath==null || epath.length==0) {
-			    Lib.println("WARNING: HLEX_ROOT NOT DEFINED");
-			    epath = "";
-			}
-
 			out += File.getContent(epath+"/scripts/hlex_lexer_c++");
 
-			var file = File.write(args[2]+".cpp", false);
+			var file = File.write(outf+".cpp", false);
 			file.writeString(out);
 			file.flush();
 			file.close();
 		}else {
-			out += "package "+packname+";\n";
-			out += "\n";
+			out += "package "+(packname==null?"":packname)+";\n";
 			out += extra;
-			out += "\n";
 			out += "class HLex {\n";
-			
-			out += "		static inline var entry_state:Int = "+dfa.id+";\n";
-			out += "\n";
-	
+			out += "	static inline var entry_state:Int = "+dfa.id+";\n";
 			out += "	static var transitions:Array<Array<Array<Int>>> = null;\n";
 			out += "	public static function init() {\n";
 			out += "		if(transitions!=null) return;\n";
@@ -356,7 +355,6 @@ class Main {
 
 			//--------------------------------------------------------------------------------------
 			
-			out += "\n";
 			out += "        static var accepting = ";
 			out += Textual.array_string(cast states, function(state:FaNode(CharSet)) {
 				return if(state.accepting) "true" else "false";
@@ -365,16 +363,10 @@ class Main {
 			
 			//--------------------------------------------------------------------------------------
 			
-			out += "\n";
 			out += "	public static function lexify(input:String):Array<"+tocktype+"> {\n";
 			out += "		init();\n";	
 			//--------------------------------------------------------------------------------------
 			
-			var epath = neko.Sys.getEnv("HLEX_ROOT");
-			if(epath==null || epath.length==0) {
-			    Lib.println("WARNING: HLEX_ROOT NOT DEFINED");
-			    epath = "";
-			};
 			
 			out += File.getContent(epath+"/scripts/hlex_lexer");
 
@@ -429,7 +421,7 @@ class Main {
 			out += "	}\n";
 			out += "}\n";
 
-			var file = File.write(args[2], false);
+			var file = File.write(outf, false);
 			file.writeString(out);
 			file.flush();
 			file.close();
