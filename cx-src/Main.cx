@@ -61,7 +61,7 @@ class Main {
 		while(iarg < args.length) {
 			var flag = args[iarg++];
 			if(flag=="-package" && haxemode) packname = args[iarg++];
-			else if(flag==-"token") tocktype = args[iarg++];
+			else if(flag=="-token") tocktype = args[iarg++];
 			else Lib.println("Unrecognised flag "+flag);
 		}
 	

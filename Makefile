@@ -35,7 +35,7 @@ bootstrap:
 	@echo "---------------"
 	@echo "Bootstrapping hlex!"
 	@echo "---------------"
-	hlex scripts/hlex.hlx -haxe cx-src/HLex.cx
+	hlex scripts/hlex.hlx -haxe cx-src/HLex.cx -token Token
 	hllr scripts/hlex.hlr cx-src/HLlr.cx -haxe -token Token -index TokenUtils.index -lalr1
 
 tar:

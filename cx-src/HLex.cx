@@ -283,10 +283,10 @@ if(errstr!=null) {
 
 return ret;
 }
-	static inline function errtok(hxl_match:String) {
+	static inline function errtok(hxl_match:String):Token {
 		return null;
 	}
-	static function tokenof(id:Int, hxl_match:String) {
+	static function tokenof(id:Int, hxl_match:String):Token {
 		switch(id) {
 			default: return null;
             case 14:
