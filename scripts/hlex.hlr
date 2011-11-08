@@ -1,6 +1,6 @@
 %token IDENT INT REGEXP HAXE
 %token COLON COLEQ
-%token NULL ERROR
+%token NULL ERR
 
 %{
 	import HLex;
@@ -23,7 +23,7 @@
 
 %state %{ HLX %}
 	// hError
-	: ERROR COLEQ haxe %{ hError(%2); %}
+	: ERR COLEQ haxe %{ hError(%2); %}
 
 	// hIgnore
 	| NULL     COLON regexp %{ hIgnore(0, %2); %}
