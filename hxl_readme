@@ -1,116 +1,24 @@
 HXL syntax:
 
-HXL should describe the tokens of the language with there precedence and optional attribute functions.
-First in the file should be the tokens with there precedence and name in the format:
+HXL should describe the tokens of the language with their precedence and attribute functions.
 
-[NULL] precedence : name := ~/regexp/~
+The normal syntax of a token declaration is:
+[precedence :] ~/regexp/~ := %{ haxe %}
 
-where precedence is an integer with higher values denoting higher precedence.
-name can be in any format you like (as a standard identifier); the resulting token name will be t_name as part of the token enumeration generated and will have an integer id associated with it in ascending order from 1.
-regexp allows a subset of the standard regexp language utilising (), |, *, +, ?, [] with ranges using -
+To 'ignore' tokens you use:
+NULL [precedence] : ~/regexp/~
 
-For example:
+You can also handle un-matched 'errors' with:
+err := %{ haxe %}
 
-1 : integer := ~/[0-9]+/~
-0 : float   := ~/[0-9]*.?[0-9]+([eE][-+]?[0-9]+)?/~
+where 'haxe' is either haXe code or c++ code for the c++ backend which has one special character % referring to the matched string.
+for haXe simply treat the %{ %} as a haXe code block with the 'return' value of the token function being the value of the last statement
 
-noting that integer rule has a higher precendence then number, so the string 140 will be preferentialy matched against integer and not float.
+for example:
+~/[0-9]+/~ := %{ tInt(Std.parseInt(%)); %}
 
-if you want to 'eat' a token (aka match, but discard it) then prefix the rule with NULL such as
+The regexp language is a subset of the standard regexp language providing grouping via (), alternation with |, repetition with * and + and optionality with ? together with ranges [] using - and the ^ operator as well as the usual . for any character.
 
-NULL 0 : ws := ~/[\n\r \t]/~
+Numerical precedences are optional (defaulting to 0).
 
-to eat whitespace (a very common requirement).
-
-Following the list of regexp rules are optional attribute functions to be associated with the rule.
-These take the form:
-
-attr(name) := %{ %; %} //simply returns the matched string as the rule datum (haXe)
-
-where the function body is to consist of valid haXe/c++ code which will simply be injected into the output of hlex. The input argument will be of type String/std::string containing the matched string.
-
-For example:
-
-attr(integer) := %{ Std.parseInt(%); %}
-attr(float)   := %{ Std.parseFloat(%); %}
-
-For C++ target you have access to 4 methods in which to output data for a token
-hlex_byte, hlex_string, hlex_double, hlex_int which will encode the data in whatever order these
-methods are called.
-
-For example.
-
-attr(integer) := %{ hlex_int(atoi(%.c_str())); %} //output integer as token data.
-
-The resultant output will consist of a token enumeration and a lexify() function which will take a string input and return a list of matched tokens including possible error tokens who's attribute is the unmatchtable part of the input.
-
-For the C++ target, the output will be an executable program taking no arguments. Instead the program will expect whitespace delimited filenames through stdin. It will output text-encoded token data through stdout concurrently which should be parsed with the methods in Base.hx in the format:
-
-	[token]*
-	
-	token {
-		byte id/data_flag (high bit = has data, low bits = id (0 to 123)
-						  entire byte = 0x7f -> EOF   (never has data)
-						  entire byte = 0xfe -> ERROR (always has data as a single string)
-		[data]*    (if data flag set)
-		zero byte  (if data flag set)
-	}
-	data {
-		byte type (1 xString, 2 xInt, 3 xDouble)
-		...
-	}
-	
-	:
-	
-	var p = new Process("lexer.exe",[]);
-	p.stdin.writeString("file\n");
-	p.stdin.flush();
-	
-	while(true) {
-		var id = p.stdout.xreadInt();
-		var type = p.stdout.readByte();
-		if(id==0 && type==0) break; //EOF
-		
-		switch(type) {
-			case 1: stdout.xreadString();
-			case 2: stdout.xreadInt();
-			case 3: stdout.xreadDouble();
-		}
-	}
-	
-	p.stdin.writeString("file2\n");
-	p.stdin.flush();
-	
-	..repeat
-
-Comments may be inserted as normal C-style comments.
-
-/* this is a comment */
-0 : lol := ~/lol/~ // this is a comment too
-
-The example output for the above rules and attributes would be:
-
-package;
-
-class Token {
-	public var data:Dynamic; //any token attribute data
-	public var id  :Int;
-	
-	public var line:Int; //line number for token start
-	public var char:Int; //char number for token start in line
-	
-	//list of token id's
-	public static inline var t_integer = 1;
-	public static inline var t_float = 2;
-	
-	public static inline var t_error = 0;
-}
-
-
-class HLex {
-	...
-	
-	public static function lexify(input:String):Array<Token> {
-		...
-	}
-}
+Each token function must have a return type of the declared Token type in the compiler options.

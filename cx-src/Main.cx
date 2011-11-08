@@ -81,36 +81,9 @@ class Main {
 		
 		var hxl = File.getContent(args[0]);
 		var tokens = HLex.lexify(hxl);
-		
-		var terminals = new Array<Terminal>();
-		for(i in tokens) {
-			var p = switch(i.id) {
-				case Token.t_ident: Terminal.IDENT.inst(i.data);
-				case Token.t_int  : Terminal.INT.inst(i.data);
-				case Token.t_attrx: Terminal.ATTR;
-				case Token.t_lpar: Terminal.LPAR;
-				case Token.t_rpar: Terminal.RPAR;
-				case Token.t_colon: Terminal.COLON;
-				case Token.t_coleq: Terminal.COLEQ;
-				case Token.t_regexp: Terminal.REGEXP.inst(i.data);
-				case Token.t_haxe:   Terminal.HAXE.inst(i.data);
-				case Token.t_NULLx: Terminal.NULL;
-				case Token.t_error: Terminal.ERROR;
-				case Token.t_err: Terminal.ERR;
-				default: null;
-			}
-			if(p!=null) terminals.unshift(p);
-		}
-		terminals.unshift(Terminal.DOLLAR);
-		
-		Lib.println(" >> Parsing descriptor");
 
-		var hlx:Array<HLX> = cast HLlr.parse(terminals);
-		
-		for(i in Error.errors)
-			Lib.println("ERROR: "+i);
-		
-		if(Error.errors.length>0) Sys.exit(1);
+		Lib.println(" >> Parsing descriptor");
+		var hlx:Array<HLX> = HLlr.parse(tokens);
 		
 		//------------------------------------------------------------------------------------------
 		
@@ -129,60 +102,30 @@ class Main {
 		var unocnt:Int = 0;
 		for(S in hlx) {
 			switch(S) {
-				case hlx_ignore(n,p,reg):
-					if(rules.has(n)) {
-						Lib.println("ERROR: Rule "+n+" already exists in rule declaration!");
-						errs = true;
-					}
+				case hIgnore(p,reg):
+					var n = "IGNORE_"+(unocnt++);
 					var nfa = RegExp.nfa(Unicode.fromString(reg));
 					var rule = { name : n, id : -1, nfa : nfa, attr : null, ign : true };
-					FaUtil(CharSet).attribute(nfa, p, function(_) return rule);
-					
-					nfrules.push(nfa);
-					rules.insert(n,rule);
-				
-				case hlx_decl(n,p,reg):
-					if(rules.has(n)) {
-						Lib.println("ERROR: Rule "+n+" already exists in rule declaration!");
-						errs = true;
-					}
-					var nfa = RegExp.nfa(Unicode.fromString(reg));
-					var rule = { name : n, id : tokenid++, nfa : nfa, attr : null, ign : false };
-					FaUtil(CharSet).attribute(nfa, p, function(_) return rule);
-					
-					nfrules.push(nfa);
-					rules.insert(n,rule);
-					
-				case hlx_attr(n, attr):
-					var rule = rules.get(n);
-					if(rule==null && n!="error_tok") {
-						Lib.println("ERROR: Rule "+n+" does not exist in attribute definition!");
-						errs = true;
-					}
-					if(rule!=null)	
-						rule.attr = attr;
-					else if(n=="error_tok") error_attr = attr;
-					
-				case hlx_err(n):
-					
-					if(rules.has(n)) {
-						Lib.println("ERROR: Rule "+n+" does not exist in attribute definition!");
-						errs = true;
-					}
-					
-					error_node = { name : n, id : tokenid++ };
 
-				case hlx_both(p, reg,attr):
-					var n = unique + (unocnt++);	
+					FaUtil(CharSet).attribute(nfa, p, function(_) return rule);
+
+					nfrules.push(nfa);
+					rules.insert(n, rule);
+
+				case hDecl(p,reg,attr):
+					var n = unique + (unocnt++);
 					var nfa = RegExp.nfa(Unicode.fromString(reg));
 					var rule = { name : n, id : tokenid++, nfa : nfa, attr : attr, ign : false };
 					FaUtil(CharSet).attribute(nfa, p, function (_) return rule);
 
 					nfrules.push(nfa);
 					rules.insert(n,rule);
-					
-				case hlx_extra(haxe):
+
+				case hExtra(haxe):
 					extra += haxe;
+
+				case hError(haxe):
+					error_attr = haxe;	
 			}
 		}
 		

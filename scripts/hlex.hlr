@@ -1,42 +1,44 @@
-%token IDENT INT ATTR LPAR RPAR COLON COLEQ NULL
-%token REGEXP HAXE
-%token ERR
+%token IDENT INT REGEXP HAXE
+%token COLON COLEQ
+%token NULL ERROR
 
 %{
+	import HLex;
+	import scx.Match;
+
 	enum HLX {
-		hlx_decl(token:String, prec:Int, regexp:String);
-		hlx_ignore(token:String, prec:Int, regexp:String);
-		hlx_attr(token:String, attr:String);
-		hlx_extra(haxe:String);
-		hlx_err(name:String);
-		hlx_both(prec:Int, regexp:String, attr:String);
-	}
-	
-	class Error {
-		public static var err:Bool=false;
-		public static var errors = new Array<String>();
+		hDecl(prec:Int, regexp:String, haxe:String);
+		hIgnore(prec:Int, regexp:String);
+		hExtra(haxe:String);
+		hError(haxe:String);
 	}
 %}
 
 %entry hlx
 
-%hlx : state			%{ if(%0==null) [] else [%0]; %}
-	 | state hlx		%{ if(%0==null) %1 else [%0].concat(%1); %}
-	 ;
-	
-%state	: INT COLON IDENT COLEQ REGEXP		%{ Error.err = false; hlx_decl(%2.data,%0.data,%4.data); %}
-		| ATTR LPAR IDENT RPAR COLEQ HAXE	%{ Error.err = false; hlx_attr(%2.data,%5.data); %}
-		| HAXE 								%{ Error.err = false; hlx_extra(%0.data); %}
-		| NULL INT COLON IDENT COLEQ REGEXP %{ Error.err = false; hlx_ignore(%3.data,%1.data,%5.data); %}
-		
-		| ERR COLON IDENT %{ Error.err = false; hlx_err(%2.data); %}
+%hlx %{ Array<HLX> %}
+	: state		%{ [%0]; %}
+	| state hlx %{ %1.unshift(%0); %1; %}
+;
 
-		| INT COLON REGEXP COLEQ HAXE %{ Error.err = false; hlx_both(%0.data,%2.data,%4.data); %}
-		| REGEXP COLEQ HAXE %{ Error.err = false; hlx_both(0,%0.data,%2.data); %}
-		
-		| ERROR
-		%{
-			if(!Error.err) { Error.errors.push("Unrecognised statement"); Error.err = true; }
-			null;
-		%}
-		;
+%state %{ HLX %}
+	// hError
+	: ERROR COLEQ haxe %{ hError(%2); %}
+
+	// hIgnore
+	| NULL     COLON regexp %{ hIgnore(0, %2); %}
+	| NULL int COLON regexp %{ hIgnore(%1,%3); %}
+	| int NULL COLON regexp %{ hIgnore(%0,%3); %}
+
+	// hDecl
+	| int COLON regexp COLEQ haxe %{ hDecl(%0,%2,%4); %}
+	| 			regexp COLEQ haxe %{ hDecl(0, %0,%2); %}
+
+	// hExtra
+	| haxe %{ hExtra(%0); %}
+;
+
+%ident  %{ String %} : IDENT  %{ Match.match(%0, tIdent (x)=x); %} ;
+%int    %{ Int    %} : INT    %{ Match.match(%0, tInt   (x)=x); %} ;
+%regexp %{ String %} : REGEXP %{ Match.match(%0, tRegExp(x)=x); %} ;
+%haxe   %{ String %} : HAXE   %{ Match.match(%0, tHaxe  (x)=x); %} ;
