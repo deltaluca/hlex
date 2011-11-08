@@ -6,16 +6,19 @@ size_t Lexer::run() {
 		if(filepath.compare("hlex_eos")==0) break;
 		else lexfile(filepath,&file,psize);
 	}
-	tokens->push(ptr<TOKEN>(new TOKEN(-3)));
+//	tokens->push(ptr<TOKEN>(new TOKEN(-3)));
+	tokens->push(TOKEOS());
 	return 0;
 }
 
 void Lexer::lexfile(const std::string& addr, char** file, int& psize) {
-	tokens->push(ptr<TOKEN>(new TOKEN(-4,Dynamic(addr))));
+//	tokens->push(ptr<TOKEN>(new TOKEN(-4,Dynamic(addr))));
+	tokens->push(TOKSOF(addr));
 	
 	FILE* fp = fopen(addr.c_str(),"rb");
 	if(fp==NULL) {
-		tokens->push(ptr<TOKEN>(new TOKEN(-2)));
+//		tokens->push(ptr<TOKEN>(new TOKEN(-2)));
+		tokens->push(TOKEOF());
 		return;
 	}
 	
@@ -57,15 +60,15 @@ void Lexer::lexfile(const std::string& addr, char** file, int& psize) {
 				err_token(tokens,errstr);
 				
 				if(attr->flags&2) {
-					if(attr->flags&4) {
+//					if(attr->flags&4) {
 						pos = ipos;
 						valstr.clear();
 						while(valcnt-->0) valstr.push_back(*(pos++));
 						tokens->push((*(attr->token))(valstr));
-					}else {
-						tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
-						pos = ipos+valcnt;
-					}
+//					}else {
+//						tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
+//						pos = ipos+valcnt;
+//					}
 				}else pos = ipos+valcnt;
 			}
 			errstate = !valid;
@@ -91,15 +94,15 @@ void Lexer::lexfile(const std::string& addr, char** file, int& psize) {
 				err_token(tokens,errstr);
 				
 				if(attr->flags&2) {
-					if(attr->flags&4) {
+//					if(attr->flags&4) {
 						pos = ipos;
 						valstr.clear();
 						while(valcnt-->0) valstr.push_back(*(pos++));
 						tokens->push((*(attr->token))(valstr));
-					}else {
-						tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
-						pos = ipos+valcnt;
-					}
+//					}else {
+//						tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
+//						pos = ipos+valcnt;
+//					}
 				}else pos = ipos+valcnt;
 			}
 			errstate = !valid;
@@ -119,17 +122,18 @@ void Lexer::lexfile(const std::string& addr, char** file, int& psize) {
 			err_token(tokens,errstr);
 			
 			if(attr->flags&2) {
-				if(attr->flags&4) {
+//				if(attr->flags&4) {
 					pos = ipos;
 					valstr.clear();
 					while(valcnt-->0) valstr.push_back(*(pos++));
 					tokens->push((*(attr->token))(valstr));
-				}else
-					tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
+//				}else
+//					tokens->push(ptr<TOKEN>(new TOKEN(attr->id)));
 			}
 		}
 	}
 	
 	err_token(tokens,errstr);
-	tokens->push(ptr<TOKEN>(new TOKEN(-2)));
+//	tokens->push(ptr<TOKEN>(new TOKEN(-2)));
+	tokens->push(TOKEOF());
 }

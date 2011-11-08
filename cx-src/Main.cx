@@ -33,8 +33,8 @@ class Main {
 			Lib.println("Usage: hlex descriptor.hxl [options]");
 			Lib.println("Options:");
 			Lib.println("\t-haxe output.hx [-package package_name] -token TokenType");
-			Lib.println("\t-c++ output");
-			Lib.println("\t\tgenerating output.hpp and output.cpp requiring caxe_util.hpp from caXe project");
+			Lib.println("\t-c++ output -token TokenType -tokenincl includetoken");
+			Lib.println("\t\tgenerating output.hpp and output.cpp requiring caxe_util.hpp from caXe project, -tokenincl to specify what file to include for the token type in the header (as plain code blocks become part of the parser cpp)");
 			
 		    Sys.exit(0);
 		    return;
@@ -52,6 +52,7 @@ class Main {
 		var haxemode:Null<Bool> = null;
 		var tocktype = null;
 		var outf = null;
+		var tockincl = null;
 
 		var iarg = 1;
 		while(iarg < args.length) {
@@ -66,21 +67,25 @@ class Main {
 				haxemode = false;
 				if(iarg == args.length) { Lib.println("Expected output name after -c++"); Sys.exit(1); }
 				outf = args[iarg++];
-				if(packname!=null) { Lib.println("-package option cannot be used with -c++"); Sys.exit(1); }
 			}else if(flag=="-package") {
-				if(haxemode!=null && !haxemode) { Lib.println("-package option cannot be used with -c++"); Sys.exit(1); }
 				if(iarg == args.length) { Lib.println("Expected package name after -package"); Sys.exit(1); }
 				packname = args[iarg++];
 			}else if(flag=="-token") {
 				if(iarg == args.length) { Lib.println("Expected typename after -token"); Sys.exit(1); }
 				tocktype = args[iarg++];
+			}else if(flag=="-tokenincl") {
+				if(iarg == args.length) { Lib.println("Expected path after -tokenincl"); Sys.exit(1); }
+				tockincl = args[iarg++];
 			}else {
 				Lib.println("Unrecognised flag "+flag);
 				Sys.exit(1);
 			}
 		}
 
+		if(haxemode==null) { Lib.println("Expected either -haxe or -c++ to be specified in args"); Sys.exit(1); }
 		if(tocktype==null) { Lib.println("-token flag is required"); Sys.exit(1); }
+		if(!haxemode && packname!=null) { Lib.println("-package cannot be used with -c++"); Sys.exit(1); }
+		if(haxemode && tockincl!=null) { Lib.println("-tokenincl cannot be used with -haxe"); Sys.exit(1); }
 
 		//------------------------------------------------------------------------------------------
 		
@@ -155,7 +160,8 @@ class Main {
 			out += "#include <string>\n";
 			out += "#include <iostream>\n";
 			out += "#include <caxe_util.hpp>\n";
-			
+			out += "#include <"+tockincl+">\n";
+/*			
 			out += "struct TOKEN {\n";
 			out += "	char id;\n";
 			out += "	Dynamic data;\n";
@@ -164,16 +170,16 @@ class Main {
 			out += "	TOKEN(char, const Dynamic&);\n";
 			out += "};\n";
 			out += "std::ostream& operator<<(std::ostream&,const TOKEN&);\n";
-			
+*/			
 			out += "class Lexer : public Thread {\n";
-			out += "	ref<tsDeque<ptr<TOKEN> > > tokens;\n";
+			out += "	ref<tsDeque<ptr<"+tocktype+"> > > tokens;\n";
 			out += "	ref<tsDeque<std::string> > files;\n";
 			
 			out += "	size_t run();\n";
 			out += "	void lexfile(const std::string&, char**, int&);\n";
 			out += "public:\n";
 			out += "	Lexer();\n";
-			out += "	void init(tsDeque<std::string>&, tsDeque<ptr<TOKEN> >&);\n";
+			out += "	void init(tsDeque<std::string>&, tsDeque<ptr<"+tocktype+"> >&);\n";
 			out += "};\n";
 			
 			var file = File.write(outf+".hpp", false);
@@ -189,19 +195,20 @@ class Main {
 			out += "#include <cstdlib>\n";
 			out += "#include <iostream>\n";
 			out += "#include <caxe_util.hpp>\n";
+			out += "#include <"+tockincl+">\n";
 			
 			out += extra+"\n";
 			
-			out += "TOKEN::TOKEN() {}\n";
+/*			out += "TOKEN::TOKEN() {}\n";
 			out += "TOKEN::TOKEN(char id) { this->id = id; }\n";
 			out += "TOKEN::TOKEN(char id, const Dynamic& data) { this->id = id; this->data = data; }\n";
 			
 			out += "std::ostream& operator<<(std::ostream& out, const TOKEN& x) {\n";
 			out += "	return out << \"{\" << (int)x.id << \", \" << x.data << \"}\";\n";
-			out += "}\n";
+			out += "}\n";*/
 			
 			out += "Lexer::Lexer() {}\n";
-			out += "void Lexer::init(tsDeque<std::string>& files, tsDeque<ptr<TOKEN> >& tokens) {\n";
+			out += "void Lexer::init(tsDeque<std::string>& files, tsDeque<ptr<"+tocktype+"> >& tokens) {\n";
 			out += "	this->files = files;\n";
 			out += "	this->tokens = tokens;\n";
 			out += "}\n";
@@ -209,10 +216,10 @@ class Main {
 			out += "struct Transition {\n";
 			out += "	short state;\n";
 			out += "	char flags;\n";
-			out += "	union { ptr<TOKEN> (*token)(const std::string&); char id; };\n";
+			out += "	union { ptr<"+tocktype+"> (*token)(const std::string&); char id; };\n";
 			
 			out += "	Transition() { state = -1; flags = 0; token = NULL; }\n";
-			out += "	Transition(short a, char b, ptr<TOKEN>(*c)(const std::string&)) { state = a; flags = b; token = c; }\n";
+			out += "	Transition(short a, char b, ptr<"+tocktype+">(*c)(const std::string&)) { state = a; flags = b; token = c; }\n";
 			out += "	Transition(short a, char b) { state = a; flags = b; token = NULL; }\n";
 			out += "	Transition(short a, char b, char c) { state = a; flags = b; id = c; }\n";
 			out += "};\n";
@@ -242,8 +249,8 @@ class Main {
 				if(!map.insert(rule.name)) continue;
 				if(rule.attr==null) continue;
 				
-			out += "ptr<TOKEN> token_"+rule.name+"(const std::string& valstr) {\n";
-			out += "	Dynamic retval;\n	";
+			out += "ptr<"+tocktype+"> token_"+rule.name+"(const std::string& valstr) {\n";
+			out += "	"+tocktype+"* retval;\n	";
 				var esc = false;
 				for(i in 0...rule.attr.length) {
 					var c = rule.attr.charCodeAt(i);
@@ -255,14 +262,31 @@ class Main {
 						out += " valstr ";
 					}else out += rule.attr.charAt(i);
 				}
-			out += "	return ptr<TOKEN>(new TOKEN("+(rule.id-1)+",retval));\n";
+			out += "	return ptr<"+tocktype+">(retval);\n";
+//			out += "	return ptr<TOKEN>(new TOKEN("+(rule.id-1)+",retval));\n";
 			out += "}\n";
 			}
 			
-			out += "void err_token(ref<tsDeque<ptr<TOKEN> > >& tokens, std::string& errstr) {\n";
+			out += "void err_token(ref<tsDeque<ptr<"+tocktype+"> > >& tokens, std::string& errstr) {\n";
 			out += "	if(errstr.length()!=0) {\n";
+			if(error_attr==null) out += "		tokens->push(ptr<"+tocktype+">::null)\n";
+			else {
+			out += "		"+tocktype+"* retval;\n	";
+				var esc = false;
+				for(i in 0...error_attr.length) {
+					var c = error_attr.charCodeAt(i);
+					if(c==Unicode.wchar('\\') && !esc) {
+						esc = true; out += '\\';
+					}else if(esc) {
+						esc = false; out += error_attr.charAt(i);
+					}else if(c == Unicode.wchar('%')) {
+						out += " errstr ";
+					}else out += error_attr.charAt(i);
+				}
+			out += "		tokens->push(ptr<"+tocktype+">(retval));\n";
+			}
 //			if(error_node==null)
-			out += "		tokens->push(ptr<TOKEN>(new TOKEN(-1,Dynamic(errstr))));\n";
+//			out += "		tokens->push(ptr<TOKEN>(new TOKEN(-1,Dynamic(errstr))));\n";
 //			else
 //			out += "		tokens->push(ptr<TOKEN>(new TOKEN("+(error_node.id-1)+",Dynamic(errstr))));\n";
 			out += "		errstr.clear();\n";
@@ -323,8 +347,11 @@ class Main {
 			
 			out += "static const short entry_state = "+dfa.id+";\n";
 			out += "static const int maxpoint = "+RegExp.maxpoint+";\n";
-			
-			out += File.getContent(epath+"/scripts/hlex_lexer_c++");
+
+			var lex = File.getContent(epath+"/scripts/hlex_lexer_c++");
+			lex = (~/TOKEN/).replace(lex,tocktype);
+//			out += File.getContent(epath+"/scripts/hlex_lexer_c++");
+			out += lex;
 
 			var file = File.write(outf+".cpp", false);
 			file.writeString(out);
