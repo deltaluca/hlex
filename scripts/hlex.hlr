@@ -33,6 +33,8 @@
 	// hDecl
 	| int COLON regexp COLEQ haxe %{ hDecl(%0,%2,%4); %}
 	| 			regexp COLEQ haxe %{ hDecl(0, %0,%2); %}
+	| int COLON regexp 			  %{ hDecl(%0,%2,""); %}
+	|           regexp            %{ hDecl(0, %0,""); %}
 
 	// hExtra
 	| haxe %{ hExtra(%0); %}

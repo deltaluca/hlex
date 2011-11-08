@@ -94,12 +94,15 @@ enum Action {
 		ret.push({from:8,to:8,act:aR(4)});
 		actions.push(ret);
 		var ret = [];
-		ret.push({from:0,to:1,act:aR(8)});
-		ret.push({from:3,to:5,act:aR(8)});
-		ret.push({from:8,to:8,act:aR(8)});
+		ret.push({from:0,to:1,act:aR(10)});
+		ret.push({from:3,to:5,act:aR(10)});
+		ret.push({from:8,to:8,act:aR(10)});
 		actions.push(ret);
 		var ret = [];
+		ret.push({from:0,to:1,act:aR(9)});
+		ret.push({from:3,to:5,act:aR(9)});
 		ret.push({from:7,to:7,act:aS(14)});
+		ret.push({from:8,to:8,act:aR(9)});
 		actions.push(ret);
 		var ret = [];
 		ret.push({from:5,to:5,act:aS(24)});
@@ -119,7 +122,10 @@ enum Action {
 		ret.push({from:13,to:13,act:aG(18)});
 		actions.push(ret);
 		var ret = [];
+		ret.push({from:0,to:1,act:aR(8)});
+		ret.push({from:3,to:5,act:aR(8)});
 		ret.push({from:7,to:7,act:aS(19)});
+		ret.push({from:8,to:8,act:aR(8)});
 		actions.push(ret);
 		var ret = [];
 		ret.push({from:5,to:5,act:aS(24)});
@@ -143,18 +149,18 @@ enum Action {
 		ret.push({from:8,to:8,act:aR(5)});
 		actions.push(ret);
 		var ret = [];
-		ret.push({from:0,to:1,act:aR(12)});
-		ret.push({from:3,to:5,act:aR(12)});
+		ret.push({from:0,to:1,act:aR(14)});
+		ret.push({from:3,to:5,act:aR(14)});
+		ret.push({from:8,to:8,act:aR(14)});
+		actions.push(ret);
+		var ret = [];
+		ret.push({from:0,to:1,act:aR(13)});
+		ret.push({from:3,to:5,act:aR(13)});
+		ret.push({from:7,to:8,act:aR(13)});
+		actions.push(ret);
+		var ret = [];
+		ret.push({from:6,to:6,act:aR(12)});
 		ret.push({from:8,to:8,act:aR(12)});
-		actions.push(ret);
-		var ret = [];
-		ret.push({from:0,to:1,act:aR(11)});
-		ret.push({from:3,to:5,act:aR(11)});
-		ret.push({from:7,to:8,act:aR(11)});
-		actions.push(ret);
-		var ret = [];
-		ret.push({from:6,to:6,act:aR(10)});
-		ret.push({from:8,to:8,act:aR(10)});
 		actions.push(ret);
 		var ret = [];
 		ret.push({from:0,to:0,act:aA});
@@ -169,11 +175,13 @@ enum Action {
 		rules.push({cb:R5, sym:11, cnt:4});
 		rules.push({cb:R6, sym:11, cnt:5});
 		rules.push({cb:R7, sym:11, cnt:3});
-		rules.push({cb:R8, sym:11, cnt:1});
-		rules.push({cb:R9, sym:15, cnt:1});
-		rules.push({cb:R10, sym:14, cnt:1});
-		rules.push({cb:R11, sym:13, cnt:1});
-		rules.push({cb:R12, sym:12, cnt:1});
+		rules.push({cb:R8, sym:11, cnt:3});
+		rules.push({cb:R9, sym:11, cnt:1});
+		rules.push({cb:R10, sym:11, cnt:1});
+		rules.push({cb:R11, sym:15, cnt:1});
+		rules.push({cb:R12, sym:14, cnt:1});
+		rules.push({cb:R13, sym:13, cnt:1});
+		rules.push({cb:R14, sym:12, cnt:1});
 	}
 	static function getaction(cstate:Int,ind:Int) {
 		var acts = actions[cstate];
@@ -290,29 +298,43 @@ var hllr__0: String  = ret.pop();
 	}
 	private static inline function R8(ret:Array<Dynamic>) {
 		//assign arguments.
-var hllr__0: String  = ret.pop();
-		var retret: HLX  = ({ hExtra(hllr__0); });
+var hllr__2: String  = ret.pop();
+var hllr__1:Token = ret.pop();
+var hllr__0: Int     = ret.pop();
+		var retret: HLX  = ({ hDecl(hllr__0,hllr__2,""); });
 		ret.push(retret);
 	}
 	private static inline function R9(ret:Array<Dynamic>) {
 		//assign arguments.
-var hllr__0:Token = ret.pop();
-		var retret: String  = ({ Match.match(hllr__0, tIdent (x)=x); });
+var hllr__0: String  = ret.pop();
+		var retret: HLX  = ({ hDecl(0, hllr__0,""); });
 		ret.push(retret);
 	}
 	private static inline function R10(ret:Array<Dynamic>) {
 		//assign arguments.
-var hllr__0:Token = ret.pop();
-		var retret: Int     = ({ Match.match(hllr__0, tInt   (x)=x); });
+var hllr__0: String  = ret.pop();
+		var retret: HLX  = ({ hExtra(hllr__0); });
 		ret.push(retret);
 	}
 	private static inline function R11(ret:Array<Dynamic>) {
 		//assign arguments.
 var hllr__0:Token = ret.pop();
-		var retret: String  = ({ Match.match(hllr__0, tRegExp(x)=x); });
+		var retret: String  = ({ Match.match(hllr__0, tIdent (x)=x); });
 		ret.push(retret);
 	}
 	private static inline function R12(ret:Array<Dynamic>) {
+		//assign arguments.
+var hllr__0:Token = ret.pop();
+		var retret: Int     = ({ Match.match(hllr__0, tInt   (x)=x); });
+		ret.push(retret);
+	}
+	private static inline function R13(ret:Array<Dynamic>) {
+		//assign arguments.
+var hllr__0:Token = ret.pop();
+		var retret: String  = ({ Match.match(hllr__0, tRegExp(x)=x); });
+		ret.push(retret);
+	}
+	private static inline function R14(ret:Array<Dynamic>) {
 		//assign arguments.
 var hllr__0:Token = ret.pop();
 		var retret: String  = ({ Match.match(hllr__0, tHaxe  (x)=x); });
