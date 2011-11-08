@@ -35,7 +35,7 @@ class Main {
 
 			Lib.println("Usage: hlex descriptor.hxl [options]");
 			Lib.println("Options:");
-			Lib.println("\t-haxe output.hx [-package package_name]");
+			Lib.println("\t-haxe output.hx [-package package_name] -token TokenType");
 			Lib.println("\t-c++ output");
 			Lib.println("\t\tgenerating output.hpp and output.cpp requiring caxe_util.hpp from caXe project");
 			
@@ -54,14 +54,17 @@ class Main {
 		if(flag=="-haxe") haxemode = true;
 		else if(flag=="-c++") haxemode = false; 
 		else { Lib.println("Unrecognised flag "+flag); Sys.exit(1); }
+	
+		var tocktype = "Token";
 		
 		var iarg = haxemode ? 3 : 3;
 		while(iarg < args.length) {
 			var flag = args[iarg++];
 			if(flag=="-package" && haxemode) packname = args[iarg++];
+			else if(flag==-"token") tocktype = args[iarg++];
 			else Lib.println("Unrecognised flag "+flag);
 		}
-		
+	
 		//------------------------------------------------------------------------------------------
 		
 		Lib.println(" >> Lexing descriptor");
@@ -363,7 +366,7 @@ class Main {
 			//--------------------------------------------------------------------------------------
 			
 			out += "\n";
-			out += "	public static function lexify(input:String):Array<Token> {\n";
+			out += "	public static function lexify(input:String):Array<"+tocktype+"> {\n";
 			out += "		init();\n";	
 			//--------------------------------------------------------------------------------------
 			
@@ -373,11 +376,11 @@ class Main {
 			    epath = "";
 			};
 			
-			out += File.getContent(epath+"/scripts/hlex_lexer_new");
+			out += File.getContent(epath+"/scripts/hlex_lexer");
 
 			out += "}\n";
 
-			out += "	static inline function errtok(hxl_match:String) {\n";
+			out += "	static inline function errtok(hxl_match:String):"+tocktype+" {\n";
 			if(error_attr==null) out += "		return null;\n";
 			else {
 				out += "return ({";
@@ -396,7 +399,7 @@ class Main {
 			}
 			out += "	}\n";
 
-			out += "	static function tokenof(id:Int, hxl_match:String) {\n";
+			out += "	static function tokenof(id:Int, hxl_match:String):"+tocktype+" {\n";
 			out += "		switch(id) {\n";
 			out += "			default: return null;\n";
 			for(x in states) {
