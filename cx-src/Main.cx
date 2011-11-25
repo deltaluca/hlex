@@ -395,6 +395,7 @@ class Main {
 			//--------------------------------------------------------------------------------------
 			
 			
+			out += "var ret = new Array<"+tocktype+">();\n";
 			out += File.getContent(epath+"/scripts/hlex_lexer");
 
 			out += "}\n";

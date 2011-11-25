@@ -1,4 +1,3 @@
-var ret = new Array<Token>();
 var valid = false;
 var valcnt = 0;
 var attr = 0;
